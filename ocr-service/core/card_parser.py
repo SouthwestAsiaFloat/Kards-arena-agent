@@ -36,11 +36,28 @@ def extract_first_digit(text: str) -> Optional[int]:
 
 
 def normalize_text(text: str) -> str:
-    if text is None:
+    if not text:
         return ""
+
+    # 1. 去首尾空格
     text = text.strip()
-    text = text.replace("（", "(").replace("）", ")")
-    text = text.replace("，", ",").replace("：", ":")
+
+    # 2. 全部转小写（对英文有用）
+    text = text.lower()
+
+    # 3. 去掉所有空白（关键🔥）
+    text = re.sub(r"\s+", "", text)
+
+    # 4. 统一中文标点
+    text = text.replace("：", ":")
+    text = text.replace("，", ",")
+    text = text.replace("。", ".")
+    text = text.replace("；", ";")
+
+    # 5. 去掉引号
+    text = text.replace("“", "").replace("”", "")
+    text = text.replace("‘", "").replace("’", "")
+
     return text
 
 
