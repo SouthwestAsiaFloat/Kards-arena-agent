@@ -10,9 +10,14 @@ from fastapi import FastAPI, File, UploadFile
 from core.ocr_runner import OCRRunner, init_ocr_engine
 from core.pipeline import process_image
 from core.card_parser import parse_cards
+from core.search_cards import match_ocr_result
+import json
 
 logger = logging.getLogger(__name__)
-
+#导入数据库卡牌数据
+def load_card_db():
+    with open("data/cards.json", "r", encoding="utf-8") as f:
+        return json.load(f)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -31,7 +36,7 @@ app = FastAPI(title="ocr-service", version="0.1.0", lifespan=lifespan)
 @app.post("/ocr")
 async def ocr_api(file: UploadFile = File(...)):
     contents = await file.read()
-
+    db = load_card_db()
     nparr = np.frombuffer(contents, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -43,4 +48,6 @@ async def ocr_api(file: UploadFile = File(...)):
 
     ocr_result = process_image(image, app.state.ocr_runner)
     parsed_result = parse_cards(ocr_result)
-    return parsed_result
+    # TODO 将匹配逻辑封装到main函数中
+    matched_result = match_ocr_result(parsed_result, db)
+    return matched_result
