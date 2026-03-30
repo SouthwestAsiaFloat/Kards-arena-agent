@@ -1,7 +1,6 @@
 package com.southwestasiafloat.backend.controller;
 
-import com.southwestasiafloat.backend.api.request.ArenaAnalyzeRequest;
-import com.southwestasiafloat.backend.api.response.ArenaAnalyzeResponse;
+import com.southwestasiafloat.backend.application.service.DraftApplicationService;
 import com.southwestasiafloat.backend.dto.request.DraftAnalyzeRequest;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,17 +12,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/arena")
 public class ArenaController {
 
-    private final ArenaApplicationService arenaApplicationService;
+    private final DraftApplicationService draftApplicationService;
 
-    public ArenaController(ArenaApplicationService arenaApplicationService) {
-        this.arenaApplicationService = arenaApplicationService;
+    public ArenaController(DraftApplicationService draftApplicationService) {
+        this.draftApplicationService = draftApplicationService;
     }
 
     @PostMapping("/analyze")
     public DraftAnalyzeResponse analyze(@RequestBody DraftAnalyzeRequest request) {
-        ArenaAnalyzeResponse response = arenaApplicationService.analyze(
-                new ArenaAnalyzeRequest(request.screenshotBase64(), request.cards())
-        );
-        return new DraftAnalyzeResponse(response.recognizedText(), response.suggestions());
+        return draftApplicationService.analyze(request);
     }
 }

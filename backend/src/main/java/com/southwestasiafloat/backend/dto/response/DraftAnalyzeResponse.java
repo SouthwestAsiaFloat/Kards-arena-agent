@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.dto.response;
 
-public class DraftAnalyzeResponse {
-}
+import java.util.List;
 
+public record DraftAnalyzeResponse(
+        String ocrRawJson,
+        List<String> suggestions
+) {
+}

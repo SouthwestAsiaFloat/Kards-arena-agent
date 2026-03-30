@@ -248,6 +248,7 @@ pip install paddlepaddle
   "seq_id": "card_0001",
   "name": "第92步兵团",
   "nation": "波兰",
+  "type": "unit",
   "cost": 4,
   "attack": 4,
   "defense": 5,
