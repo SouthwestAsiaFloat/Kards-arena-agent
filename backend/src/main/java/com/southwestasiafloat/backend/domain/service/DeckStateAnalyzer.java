@@ -28,13 +28,13 @@ public class DeckStateAnalyzer {
             int cost = card.getCost();
 
             // 费用曲线统计
-            costCurve.put(cost, costCurve.getOrDefault(cost, 0) + 1);
+            costCurve.put(cost, costCurve.getOrDefault(cost, 0) + card.getCount());
 
             // 类型统计
             if ("unit".equalsIgnoreCase(card.getType())) {
-                unitCount++;
+                unitCount = unitCount + card.getCount();
             } else {
-                orderCount++;
+                orderCount = orderCount + card.getCount();
             }
 
             // 阶段划分
