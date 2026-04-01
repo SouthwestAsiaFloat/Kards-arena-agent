@@ -49,7 +49,15 @@ async def ocr_api(file: UploadFile = File(...)):
 
     ocr_result = process_image(image, app.state.ocr_runner)
     parsed_result = parse_cards(ocr_result)
-    # TODO 将匹配逻辑封装到main函数中
     matched_result = match_ocr_result(parsed_result, db)
     final_result = simplify_match_results(matched_result)
+
+    print("\n====== OCR RESULT ======")
+    print(ocr_result)
+
+    print("\n====== PARSED RESULT ======")
+    print(json.dumps(parsed_result, ensure_ascii=False, indent=2))
+
+    print("\n====== MATCH RESULT ======")
+    print(json.dumps(matched_result, ensure_ascii=False, indent=2))
     return final_result

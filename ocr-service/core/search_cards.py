@@ -4,6 +4,7 @@ OCR 文本检索模块。
 import re
 from rapidfuzz import process, fuzz
 
+
 from core.card_parser import normalize_text
 
 
@@ -118,6 +119,7 @@ def simplify_match_results(match_results: list[dict]) -> list[dict]:
             "cost": card.get("cost"),
             "attack": card.get("attack"),
             "defense": card.get("defense"),
+            "description": card.get("description"),
             "type": card.get("type"),
             "count": ocr_card.get("count", 1)
         })

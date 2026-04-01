@@ -359,7 +359,7 @@ agent 解决“该不该选这张卡”
     "attack": null,
     "defense": null,
     "type": "order"
-    "count": 2,
+    "count": 2
   },
   {
     "name": "红魔空降步兵团",
@@ -369,6 +369,7 @@ agent 解决“该不该选这张卡”
     "type": "unit"
     "count": 1
   }
+
 ]
 ---
 

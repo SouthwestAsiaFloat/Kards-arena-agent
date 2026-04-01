@@ -1,12 +1,10 @@
 package com.southwestasiafloat.backend.controller;
 
 import com.southwestasiafloat.backend.application.service.DraftApplicationService;
-import com.southwestasiafloat.backend.dto.request.DraftAnalyzeRequest;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/arena")
@@ -18,8 +16,8 @@ public class ArenaController {
         this.draftApplicationService = draftApplicationService;
     }
 
-    @PostMapping("/analyze")
-    public DraftAnalyzeResponse analyze(@RequestBody DraftAnalyzeRequest request) {
-        return draftApplicationService.analyze(request);
+    @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public DraftAnalyzeResponse analyze(@RequestPart("file") MultipartFile file) throws Exception {
+        return draftApplicationService.analyze(file);
     }
 }

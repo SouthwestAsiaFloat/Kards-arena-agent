@@ -1,21 +1,21 @@
 package com.southwestasiafloat.backend.application.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import com.southwestasiafloat.backend.domain.gateway.OcrGateway;
-import com.southwestasiafloat.backend.domain.model.Card;
-import com.southwestasiafloat.backend.domain.model.CardEvaluationResult;
-import com.southwestasiafloat.backend.domain.model.OfferedCards;
+import com.southwestasiafloat.backend.domain.model.*;
 import com.southwestasiafloat.backend.domain.service.CardEvaluationService;
 import com.southwestasiafloat.backend.domain.service.DraftDecisionService;
-import com.southwestasiafloat.backend.dto.request.DraftAnalyzeRequest;
+import com.southwestasiafloat.backend.domain.service.SynergyAnalyzer;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
 import java.util.stream.Collectors;
-
+import java.util.ArrayList;
+import com.southwestasiafloat.backend.infrastructure.repository.InMemorySessionRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.core.type.TypeReference;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.swing.*;
 import java.util.Collections;
 import java.util.List;
 
@@ -27,16 +27,26 @@ public class DraftApplicationService {
     private final ObjectMapper objectMapper;
     private final CardEvaluationService CardEvaluationService;
     private final DraftDecisionService DraftDecisionService;
+    private final InMemorySessionRepository repository ;
+    private final SynergyAnalyzer SynergyAnalyzer;
 
-    public DraftApplicationService(OcrGateway ocrGateway, ObjectMapper objectMapper, CardEvaluationService cardEvaluationService, DraftDecisionService draftDecisionService) {
+    public DraftApplicationService(OcrGateway ocrGateway,
+                                   ObjectMapper objectMapper,
+                                   CardEvaluationService cardEvaluationService,
+                                   DraftDecisionService draftDecisionService,
+                                   InMemorySessionRepository repository,
+                                   SynergyAnalyzer synergyAnalyzer) {
         this.ocrGateway = ocrGateway;
         this.objectMapper = objectMapper;
         this.CardEvaluationService = cardEvaluationService;
         this.DraftDecisionService = draftDecisionService;
+        this.repository = repository;
+        this.SynergyAnalyzer = synergyAnalyzer;
     }
 
-    public DraftAnalyzeResponse analyze(DraftAnalyzeRequest request) {
-        String ocrRawJson = ocrGateway.analyzeImage(request.screenshotBase64());
+    public DraftAnalyzeResponse analyze(MultipartFile file) throws Exception {
+        String ocrRawJson = analyzeScreenshot(file);
+        log.info("OCR 原始解析结果: {}", ocrRawJson);
         List<Card> cards = parseCards(ocrRawJson);
         OfferedCards offeredCards = toOfferedCards(cards);
 
@@ -45,18 +55,27 @@ public class DraftApplicationService {
                 .map(Card::getName)
                 .filter(name -> name != null && !name.isBlank())
                 .collect(Collectors.toList());
-        log.info("当前候选卡: {}", cardNames);
+
+        log.info("解析得到的候选卡: {}", offeredCards);
 
         // 先只做基础评分
         List<CardEvaluationResult> evaluations =
                 CardEvaluationService.evaluate(offeredCards);
+        // 返回目前抓牌回合的DraftSession
+//        DraftSession session = repository.get();
 
-        // 先简单选最高分
-        CardEvaluationResult bestPick =
-                DraftDecisionService.pickBest(evaluations);
+       // 测试阶段, 先写一个空的session
+        DraftSession session = new DraftSession();
+        session.setPickedCards(new ArrayList<>());
 
+        //调用SynergyService获取协同评分结果
+        List<SynergyResult> synergyResults =
+                SynergyAnalyzer.evaluateSynergy(session, offeredCards);
 
-        return new DraftAnalyzeResponse(ocrRawJson, cardNames);
+        //调用DraftDecisionService获取最终选牌决策
+        FinalDecision decision = DraftDecisionService.decide(evaluations, synergyResults);
+
+        return new DraftAnalyzeResponse(decision);
     }
 
     private List<Card> parseCards(String rawJson) {
@@ -81,6 +100,11 @@ public class DraftApplicationService {
         }
 
         return offeredCards;
+    }
+
+    public String analyzeScreenshot(MultipartFile file) throws Exception {
+        byte[] imageBytes = file.getBytes();
+        return ocrGateway.analyzeImage(imageBytes);
     }
 
 }

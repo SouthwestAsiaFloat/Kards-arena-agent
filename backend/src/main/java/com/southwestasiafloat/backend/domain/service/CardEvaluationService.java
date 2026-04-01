@@ -24,6 +24,19 @@ public class CardEvaluationService {
     // 各国评分表：nation -> (cardName -> score)
     private Map<String, Map<String, Double>> nationScoreMap = new HashMap<>();
 
+    // OCR国家名称到评分表国家名称的映射
+    private static final Map<String, String> NATION_MAPPING = Map.of(
+            "英国", "Britain",
+            "德国", "Germany",
+            "法国", "France",
+            "美国", "USA",
+            "苏联", "Soviet",
+            "日本", "Japan",
+            "意大利", "Italy",
+            "波兰", "Poland",
+            "芬兰", "Finland"
+    );
+
     public CardEvaluationService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
@@ -49,11 +62,13 @@ public class CardEvaluationService {
 
     private CardEvaluationResult evaluateSingleCard(Card ocrCard) {
         String ocrName = safeTrim(ocrCard.getName());
+        Integer count = ocrCard.getCount() == null ? 1 : ocrCard.getCount();
 
         if (ocrName == null || ocrName.isEmpty()) {
             return new CardEvaluationResult(
                     ocrCard,
                     0.0,
+                    count,
                     0.0,
                     "N/A",
                     "OCR未识别到有效卡名",
@@ -68,6 +83,7 @@ public class CardEvaluationService {
             return new CardEvaluationResult(
                     ocrCard,
                     0.0,
+                    count,
                     0.0,
                     "cards.json",
                     "未在全量卡库中匹配到该卡",
@@ -76,6 +92,7 @@ public class CardEvaluationService {
         }
 
         String nation = safeTrim(fullCard.getNation());
+        nation = NATION_MAPPING.getOrDefault(nation, nation);
         Map<String, Double> scoreTable = nationScoreMap.getOrDefault(nation, Collections.emptyMap());
 
         // 2. 从对应国家评分表里找分
@@ -86,6 +103,7 @@ public class CardEvaluationService {
             return new CardEvaluationResult(
                     fullCard,
                     baseScore,
+                    count,
                     baseScore,
                     nation + ".json",
                     "已匹配到卡牌，但该卡未收录在竞技场评分表中，使用默认分",
@@ -96,6 +114,7 @@ public class CardEvaluationService {
         return new CardEvaluationResult(
                 fullCard,
                 baseScore,
+                count,
                 baseScore,
                 nation + ".json",
                 "已根据对应国家竞技场评分表完成基础评分",
@@ -121,7 +140,7 @@ public class CardEvaluationService {
     private void loadNationScores() {
         List<String> nations = Arrays.asList(
                 "Finland", "France", "Germany", "Italy",
-                "Japan", "Poland", "Soviet", "USA"
+                "Japan", "Poland", "Soviet", "USA", "Britain"
         );
 
         for (String nation : nations) {
