@@ -10,11 +10,18 @@ import java.util.List;
 public class DraftSession {
 
     private String sessionId;
-
     private List<Card> pickedCards = new ArrayList<>();
-
     private DeckState deckState;
-
     private Integer currentPickNo;
+
+    public DraftSession(String sessionId) {
+        this.sessionId = sessionId;
+        this.currentPickNo = 1;
+    }
+
+    public void addPickedCard(Card pickedCard) {
+        this.pickedCards.add(pickedCard);
+        this.currentPickNo++;
+    }
 }
 

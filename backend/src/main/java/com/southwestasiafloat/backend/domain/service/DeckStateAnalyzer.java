@@ -1,6 +1,8 @@
 package com.southwestasiafloat.backend.domain.service;
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.DeckState;
+import org.springframework.stereotype.Service;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -8,6 +10,7 @@ import java.util.Map;
 
 
 // 目前已抓卡组状态分析
+@Service
 public class DeckStateAnalyzer {
 
     public DeckState analyze(List<Card> pickedCards) {

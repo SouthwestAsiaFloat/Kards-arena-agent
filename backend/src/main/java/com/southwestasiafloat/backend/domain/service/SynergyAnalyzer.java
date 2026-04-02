@@ -40,15 +40,6 @@ public class SynergyAnalyzer {
         }
     }
 
-    // 测试
-    public String analyze(DraftSession session, OfferedCards offeredCards) {
-        String prompt = buildPrompt(session, offeredCards);
-
-        System.out.println("=== PROMPT ===");
-        System.out.println(prompt);
-
-        return llmGateway.analyzeDraft(prompt);
-    }
 
     private String buildPrompt(DraftSession session, OfferedCards offeredCards) {
 

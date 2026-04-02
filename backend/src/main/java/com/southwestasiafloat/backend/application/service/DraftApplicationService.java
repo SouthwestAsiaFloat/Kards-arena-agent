@@ -15,7 +15,6 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.swing.*;
 import java.util.Collections;
 import java.util.List;
 
@@ -62,11 +61,9 @@ public class DraftApplicationService {
         List<CardEvaluationResult> evaluations =
                 CardEvaluationService.evaluate(offeredCards);
         // 返回目前抓牌回合的DraftSession
-//        DraftSession session = repository.get();
+        DraftSession session = repository.get();
 
-       // 测试阶段, 先写一个空的session
-        DraftSession session = new DraftSession();
-        session.setPickedCards(new ArrayList<>());
+
 
         //调用SynergyService获取协同评分结果
         List<SynergyResult> synergyResults =
@@ -75,7 +72,7 @@ public class DraftApplicationService {
         //调用DraftDecisionService获取最终选牌决策
         FinalDecision decision = DraftDecisionService.decide(evaluations, synergyResults);
 
-        return new DraftAnalyzeResponse(decision);
+        return new DraftAnalyzeResponse(cards, decision);
     }
 
     private List<Card> parseCards(String rawJson) {

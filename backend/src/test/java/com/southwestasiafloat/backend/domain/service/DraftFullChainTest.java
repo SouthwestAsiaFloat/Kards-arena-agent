@@ -74,7 +74,7 @@ class DraftFullChainTest {
         // =========================
         // 2. 模拟当前已抓卡组（给 SynergyAnalyzer 用）
         // =========================
-        DraftSession session = new DraftSession();
+        DraftSession session = new DraftSession(sessionId);
         List<Card> pickedCards = new ArrayList<>();
 
         Card picked1 = new Card();

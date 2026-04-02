@@ -119,6 +119,7 @@ def simplify_match_results(match_results: list[dict]) -> list[dict]:
             "cost": card.get("cost"),
             "attack": card.get("attack"),
             "defense": card.get("defense"),
+            "keywords": card.get("keywords"),
             "description": card.get("description"),
             "type": card.get("type"),
             "count": ocr_card.get("count", 1)

@@ -62,7 +62,7 @@ public class SynergyTest {
         picked3.setDescription("敌方指向或攻击本单位时，+1 花费。");
         picked3.setType("unit");
 
-        DraftSession session = new DraftSession();
+        DraftSession session = new DraftSession(sessionId);
         session.setPickedCards(List.of(picked1, picked2, picked3));
 
         Card offer1 = new Card();
