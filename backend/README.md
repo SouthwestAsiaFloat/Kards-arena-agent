@@ -1,388 +1,356 @@
-# 🧠 Backend - Kards Arena Draft Agent (Java)
+# Backend - Kards Arena Draft Agent
 
-本模块为 **Kards Arena Draft Agent 的核心决策服务（Agent Service）**，
-基于 **Spring Boot** 实现，负责：
+`backend` 是当前项目的后端决策服务，负责维护竞技场选牌会话、调用 OCR 服务识别候选卡牌，并在 `Tool Calling + 规则兜底` 的架构下返回推荐结果。
 
-* 🧠 Draft 选牌决策
-* 📊 牌池（Deck）状态分析
-* 🔄 Draft Session 状态管理
-* 🔗 调用 OCR / LLM 等外部服务
+当前版本的重点不是“纯 LLM 直接拍结论”，而是：
 
----
+- 用 `Spring Boot` 暴露稳定的 HTTP API
+- 用 `DraftSession` 维护整局上下文
+- 用 `LangChain4j Tool Calling` 编排分析流程
+- 用规则排序作为主锚点和失败兜底
+- 用历史记录把“推荐”和“实际选择”串成完整闭环
 
-# 📌 模块职责
+## 当前架构
 
-Backend（Java）是整个系统的**决策中枢**：
+### 角色分工
 
-```text
-前端 / 调用方
-      ↓
-Backend（本服务，Java Agent）
-      ↓
-OCR Service（Python）
+- `frontend`
+  负责上传截图、展示候选卡、显示推荐结果、确认实际选牌。
+- `backend`
+  负责会话管理、分析编排、工具调用、推荐结果落库。
+- `ocr-service`
+  负责把截图识别成结构化候选卡牌列表。
+- `DashScope / Qwen`
+  负责在工具结果之上做最终解释和推荐输出。
+
+### 核心调用链
+
+```mermaid
+flowchart LR
+    A["Frontend"] --> B["/api/arena/start"]
+    A --> C["/api/arena/analyze"]
+    A --> D["/api/arena/pick"]
+    C --> E["DraftApplicationService"]
+    E --> F["ToolCallingDraftAnalyzeService"]
+    F --> G["DraftAnalyzeToolbox"]
+    G --> H["DraftAnalyzeContextStore"]
+    H --> I["OCR Gateway"]
+    H --> J["CardEvaluationService"]
+    H --> K["DeckStateAnalyzer"]
+    H --> L["InMemorySessionRepository"]
+    H --> M["RuleBasedDraftRankingService"]
+    F --> N["OpenAiChatModel"]
+    F --> O["Rule Fallback"]
+    E --> P["Draft history persistence"]
+    D --> Q["DraftSessionApplicationService"]
 ```
 
----
-
-## Backend 负责什么？
-
-* 接收三选一卡牌（或 OCR 结果）
-* 维护 Draft Session（已选牌）
-* 分析当前牌池状态（Deck State）
-* 调用领域规则（skills）进行评分
-* 返回推荐卡牌及解释
-
----
-
-## Backend 不负责什么？
-
-* ❌ 图片识别（由 OCR-service 负责）
-* ❌ 原始文本解析
-* ❌ UI 展示
-
----
-
-# 🧱 项目结构说明
+### 分层说明
 
 ```text
-com.southwestasiafloat.backend
-├─ controller
-├─ dto
-├─ application
-├─ domain
-├─ infrastructure
-├─ config
-└─ util
+src/main/java/com/southwestasiafloat/backend
+├── controller
+├── dto
+├── application
+│   └── service
+│       └── toolcalling
+├── domain
+│   ├── gateway
+│   ├── model
+│   └── service
+├── infrastructure
+│   ├── client
+│   └── repository
+└── config
 ```
 
----
+关键职责：
 
-## 🔹 controller
+- `controller`
+  对外提供 `/api/arena/*` 接口。
+- `application.service`
+  编排业务流程，连接 session、analyze、pick。
+- `application.service.toolcalling`
+  当前版本分析内核，负责 Agent、Toolbox、上下文缓存、规则兜底。
+- `domain.model`
+  定义 `Card`、`DraftSession`、`DraftHistoryEntry`、`DeckState`、`FinalDecision` 等核心对象。
+- `domain.service`
+  提供基础评分、卡组状态分析等确定性能力。
+- `domain.gateway`
+  抽象 OCR / LLM / repository 等外部依赖。
+- `infrastructure`
+  提供 OCR HTTP client、LLM client、内存 session 仓储等实现。
 
-```text
-controller/
-  └─ ArenaController.java
+## 当前分析链路
+
+`/api/arena/analyze` 已经重构为 `Tool Calling` 方式，但前端请求和响应结构保持不变。
+
+### Analyze 内部流程
+
+1. 前端上传截图，并可选携带 `sessionId`
+2. `DraftApplicationService` 调用 `ToolCallingDraftAnalyzeService`
+3. 服务为本次分析创建 `analysisId`，并把图片字节放入 `DraftAnalyzeContextStore`
+4. `DraftAnalyzeAgent` 按约定顺序调用工具：
+   - `getSessionSnapshot`
+   - `extractCandidates`
+   - `evaluateBaseScores`
+   - `analyzeDeckState`
+   - `getPickHistory`
+   - `rankCandidates`
+5. Agent 输出严格 JSON：
+   - `recommendedCardName`
+   - `reason`
+   - `finalScore`
+   - `decisionSource`
+6. 后端校验推荐卡是否属于当前候选集
+7. 如果 Tool Calling 失败或模型返回非法结果，则回退到 `RuleBasedDraftRankingService`
+8. 返回 `DraftAnalyzeResponse`
+9. 若本次分析带有 `sessionId`，则把结果写入 `DraftSession.history`，状态记为“待确认”
+
+### 为什么这样设计
+
+- 前端接口不变，重构风险低
+- 工具负责提供事实，模型负责做有限度判断
+- 规则排序可以降低幻觉和异常输出风险
+- session 和 history 让整局选牌具备连续上下文
+
+## Session 生命周期
+
+### 1. 开始一局
+
+`POST /api/arena/start`
+
+- 创建 `DraftSession`
+- 初始化 `currentPickNo = 1`
+- 返回 `sessionId`
+
+### 2. 分析当前一手
+
+`POST /api/arena/analyze`
+
+- OCR 识别候选卡
+- Tool Calling 编排分析
+- 返回推荐结果
+- 将本轮记录写入 `history`
+
+### 3. 用户确认实际选牌
+
+`POST /api/arena/pick`
+
+- 将 `pickedCard` 写入 `pickedCards`
+- 更新 `deckState`
+- 将最新一条历史记录从“待确认”改为“已确认”
+- `currentPickNo + 1`
+
+### 4. 查询当前局状态
+
+`GET /api/arena/session/{sessionId}`
+
+- 返回当前 session、已选卡池、历史记录、卡组状态
+
+### 5. 结束本局
+
+`DELETE /api/arena/session/{sessionId}`
+
+- 删除内存中的当前会话
+
+## 主要接口
+
+### `POST /api/arena/start`
+
+返回示例：
+
+```json
+{
+  "sessionId": "b5d0d9b4-4e76-4f56-aef7-0c7e0e7f5f5d",
+  "message": "Draft started successfully"
+}
 ```
 
-* 对外 HTTP 接口入口
-* 接收请求、返回响应
-* 不包含业务逻辑
+### `POST /api/arena/analyze`
 
----
+请求格式：`multipart/form-data`
 
-## 🔹 dto（数据传输对象）
+- `file`: 当前竞技场截图
+- `sessionId`: 可选，会话存在时建议传入
 
-```text
-dto/
-├─ request/
-└─ response/
+`curl` 示例：
+
+```bash
+curl -X POST "http://127.0.0.1:8080/api/arena/analyze" \
+  -F "file=@D:/screenshots/pick-01.png" \
+  -F "sessionId=b5d0d9b4-4e76-4f56-aef7-0c7e0e7f5f5d"
 ```
 
-### request
+响应示例：
 
-* `StartDraftRequest`：开始一局
-* `DraftAnalyzeRequest`：分析三选一
-* `DraftPickRequest`：确认选择
-
-### response
-
-* `ArenaResponse`：通用响应
-* `DraftAnalyzeResponse`：推荐结果
-* `StartDraftResponse`：session 初始化结果
-
----
-
-## 🔹 application（应用层）
-
-```text
-application/service/
-├─ DraftApplicationService
-└─ DraftSessionApplicationService
+```json
+{
+  "offeredCards": [
+    {
+      "name": "驱敌入海",
+      "nation": "Japan",
+      "cost": 3,
+      "type": "order",
+      "count": 1,
+      "description": "移除1个单位。下个友方回合开始时，将其返回手牌。"
+    }
+  ],
+  "decision": {
+    "recommendedCard": {
+      "card": {
+        "name": "驱敌入海"
+      },
+      "baseScore": 3.5,
+      "adjustedScore": 3.5,
+      "count": 1,
+      "source": "Japan.json",
+      "matched": true,
+      "comment": "基础质量优秀"
+    },
+    "llmReason": "规则排序领先，且当前牌池需要补充稳定解牌。",
+    "decisionSource": "tool-calling",
+    "finalScore": 3.0
+  }
+}
 ```
 
-职责：
+### `POST /api/arena/pick`
 
-* 流程编排（orchestration）
-* 不做复杂业务计算
-* 负责串联 domain 层能力
+请求示例：
 
----
-
-## 🔹 domain（领域层，核心）
-
-```text
-domain/
-├─ model/
-├─ service/
-└─ gateway/
+```json
+{
+  "sessionId": "b5d0d9b4-4e76-4f56-aef7-0c7e0e7f5f5d",
+  "pickedCard": {
+    "name": "驱敌入海",
+    "nation": "Japan",
+    "cost": 3,
+    "type": "order",
+    "count": 1,
+    "description": "移除1个单位。下个友方回合开始时，将其返回手牌。"
+  }
+}
 ```
 
-这是整个系统最重要的部分。
+### `GET /api/arena/session/{sessionId}`
 
----
+返回当前局完整状态，包括：
 
-### 📦 domain.model（领域模型）
+- `pickedCards`
+- `history`
+- `deckState`
+- `currentPickNo`
 
-```text
-Card                    # 卡牌实体
-DraftSession            # 一局选牌状态
-DeckState               # 当前牌池分析结果
-CardEvaluationResult    # 单卡评估结果
-OfferedCards            # 三选一集合
+### `DELETE /api/arena/session/{sessionId}`
+
+用于结束并清理当前局。
+
+## 关键类
+
+### API 与编排
+
+- `controller/ArenaController.java`
+- `application/service/DraftApplicationService.java`
+- `application/service/DraftSessionApplicationService.java`
+
+### Tool Calling 内核
+
+- `application/service/toolcalling/ToolCallingDraftAnalyzeService.java`
+- `application/service/toolcalling/DraftAnalyzeAgent.java`
+- `application/service/toolcalling/DraftAnalyzeToolbox.java`
+- `application/service/toolcalling/DraftAnalyzeContextStore.java`
+- `application/service/toolcalling/RuleBasedDraftRankingService.java`
+
+### 领域与存储
+
+- `domain/model/DraftSession.java`
+- `domain/model/DraftHistoryEntry.java`
+- `domain/service/CardEvaluationService.java`
+- `domain/service/DeckStateAnalyzer.java`
+- `infrastructure/repository/InMemorySessionRepository.java`
+
+## 配置说明
+
+当前核心配置位于 `src/main/resources/application.yml`：
+
+```yaml
+llm:
+  api-key: ${DASHSCOPE_API_KEY}
+  model-name: qwen3-max
+  base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+
+ocr:
+  base-url: http://127.0.0.1:18000
+  path: /ocr
 ```
 
----
+### 环境变量
 
-### 🧠 domain.service（核心逻辑 / skills）
+启动前需要准备：
 
-```text
-DraftDecisionService    # 总决策逻辑
-DeckStateAnalyzer       # 牌池分析（核心）
-CardEvaluationService   # 单卡评分
-SynergyAnalyzer         # 协同分析
+```bash
+DASHSCOPE_API_KEY=<your_api_key>
 ```
 
-👉 这些就是 Agent 的“技能系统（skills）”
+### 为什么 OCR 默认是 `18000`
 
----
+当前项目默认把 OCR 服务配置为 `127.0.0.1:18000`。这样可以避开部分 Windows 环境下 `8000` 端口被系统保留的问题，同时和前端、后端当前联调配置保持一致。
 
-### 🔌 domain.gateway（外部依赖接口）
+## 本地启动
 
-```text
-OcrGateway
-LlmGateway
-SessionRepository
+### 1. 启动 OCR 服务
+
+在 `ocr-service` 目录执行：
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 18000
 ```
 
-* 定义接口（不关心实现）
-* 解耦 domain 和 infrastructure
+### 2. 启动 backend
 
----
-
-## 🔹 infrastructure（基础设施层）
-
-```text
-infrastructure/
-├─ client/
-└─ repository/
-```
-
----
-
-### client（外部调用实现）
-
-```text
-OcrHttpClient   # 调用 OCR-service
-LlmHttpClient   # 调用大模型
-```
-
----
-
-### repository（存储实现）
-
-```text
-InMemorySessionRepository   # DraftSession 内存存储
-```
-
-后期可以替换为：
-
-* Redis
-* MySQL
-
----
-
-## 🔹 config
-
-* Spring Boot 配置
-* Bean 配置
-* HTTP Client 配置等
-
----
-
-## 🔹 util
-
-* 工具类
-* JSON 处理等
-
----
-
-# 🔄 核心业务流程
-
-## 1️⃣ 开始 Draft
-
-```text
-POST /draft/start
-→ 创建 DraftSession
-→ 返回 sessionId
-```
-
----
-
-## 2️⃣ 分析三选一（核心）
-
-```text
-POST /draft/analyze
-```
-
-流程：
-
-```text
-1. 获取 DraftSession
-2. 分析 DeckState（DeckStateAnalyzer）
-3. 对 offered_cards 逐个评估（CardEvaluationService）
-4. 综合评分（DraftDecisionService）
-5. 返回推荐
-```
-
----
-
-## 3️⃣ 选择卡牌
-
-```text
-POST /draft/pick
-```
-
-流程：
-
-```text
-1. 更新 DraftSession
-2. 加入 picked_cards
-3. 更新 pickNo
-```
-
----
-
-# 🧠 核心设计理念
-
-## ✅ 1. 有状态 Agent（Stateful）
-
-系统通过 `DraftSession` 维护上下文：
-
-```text
-picked_cards + pick_no → 决策依据
-```
-
----
-
-## ✅ 2. Deck State 驱动决策
-
-不是选“最强卡”，而是选：
-
-```text
-对当前牌池最合适的卡
-```
-
----
-
-## ✅ 3. Skills 组合决策
-
-Agent 通过多个技能完成判断：
-
-* 单卡强度
-* 曲线分析
-* 协同分析
-* 国家倾向
-* 风险评估
-
----
-
-## ✅ 4. 分层清晰
-
-| 层              | 职责     |
-| -------------- | ------ |
-| controller     | HTTP入口 |
-| application    | 流程编排   |
-| domain         | 业务核心   |
-| infrastructure | 外部依赖   |
-
----
-
-# ⚙️ 运行方式
-
-## 1. 启动项目
+在当前目录执行：
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-或：
+Windows:
 
-```bash
-mvn spring-boot:run
+```powershell
+.\mvnw.cmd spring-boot:run
 ```
 
----
-
-## 2. 默认端口
+默认端口：
 
 ```text
-http://localhost:8080
+http://127.0.0.1:8080
 ```
 
----
+## 当前版本特性
 
-## 3. 示例接口
+- 已支持整局 session 管理
+- 已支持真实上传截图分析
+- 已支持 Tool Calling 分析内核
+- 已支持规则排序兜底
+- 已支持历史记录“待确认 / 已确认”状态流转
+- 已支持前端实际确认选牌并同步回写 session
 
-### 开始 Draft
+## 当前限制
 
-```http
-POST /draft/start
-```
+- session 仍为内存存储，服务重启后会丢失
+- 仍然依赖手动上传截图，不是桌面自动监听
+- Tool Calling 结果质量仍受 OCR 识别和模型稳定性影响
+- 尚未补齐完整的端到端自动化测试与效果评估体系
 
----
+## 后续建议
 
-### 分析三选一
+- 将 `InMemorySessionRepository` 替换为 `Redis / MySQL`
+- 为 Tool Calling 增加更细粒度的校验与重试
+- 建立 OCR 与推荐效果评估数据集
+- 增加历史回放、对局复盘和策略模式切换
+- 增加可观测性日志，记录工具调用链和耗时
 
-```http
-POST /draft/analyze
-```
+## 一句话总结
 
-```json
-{
-  "sessionId": "abc123",
-  "offered_cards": [...]
-}
-```
-
----
-
-### 选择卡牌
-
-```http
-POST /draft/pick
-```
-
-```json
-{
-  "sessionId": "abc123",
-  "chosen_index": 1
-}
-```
-
----
-
-# 🚀 当前实现阶段
-
-* ✅ DraftSession 管理
-* ✅ 基础评分逻辑
-* ⏳ DeckState 深度分析
-* ⏳ OCR 集成
-* ⏳ LLM 解释增强
-
----
-
-# 📈 后续规划
-
-* Redis Session 存储
-* 更复杂协同系统
-* 多策略评分引擎
-* UI 可视化
-* Draft Replay 分析
-
----
-
-# 🧠 一句话总结
-
-> Backend 是整个系统的“大脑”，负责在当前牌池上下文中做最优选牌决策。
-
----
+当前 backend 是一个“保留稳定 API 外壳、内部采用 Tool Calling 编排分析、并用 session 维护整局选牌上下文”的竞技场选牌后端。

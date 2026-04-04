@@ -24,8 +24,9 @@ public class ArenaController {
     }
 
     @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public DraftAnalyzeResponse analyze(@RequestPart("file") MultipartFile file) throws Exception {
-        return draftApplicationService.analyze(file);
+    public DraftAnalyzeResponse analyze(@RequestPart("file") MultipartFile file,
+                                        @RequestPart(value = "sessionId", required = false) String sessionId) throws Exception {
+        return draftApplicationService.analyze(file, sessionId);
     }
 
     /**
