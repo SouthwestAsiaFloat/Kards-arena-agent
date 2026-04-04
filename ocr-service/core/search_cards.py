@@ -4,6 +4,7 @@ OCR 文本检索模块。
 import re
 from rapidfuzz import process, fuzz
 
+
 from core.card_parser import normalize_text
 
 
@@ -53,7 +54,7 @@ def filter_db_by_cost_with_fallback(db: list[dict], cost: int | None) -> list[di
     return filtered
 
 
-def search_cards(query: str, db: list[dict], threshold: float = 80):
+def search_cards(query: str, db: list[dict]):
     if not query or not db:
         return None
 
@@ -71,40 +72,11 @@ def search_cards(query: str, db: list[dict], threshold: float = 80):
 
     matched_text, score, index = result
 
-    if score < threshold:
-        return None
-
     return {
         "card": db[index],
         "matched_text": matched_text,
-        "score": score
+        "score": score,
     }
-
-
-def search_cards_topk(query: str, db: list[dict], limit: int = 3):
-    if not query or not db:
-        return []
-
-    query = normalize_text(query)
-    choices = [build_search_text(card) for card in db]
-
-    results = process.extract(
-        query,
-        choices,
-        scorer=fuzz.WRatio,
-        limit=limit
-    )
-
-    output = []
-    for matched_text, score, index in results:
-        output.append({
-            "card": db[index],
-            "matched_text": matched_text,
-            "score": score
-        })
-
-    return output
-
 
 def build_query_from_ocr_card(ocr_card: dict) -> str:
     raw_texts = ocr_card.get("raw_texts", [])
@@ -113,26 +85,44 @@ def build_query_from_ocr_card(ocr_card: dict) -> str:
     return normalize_text(query)
 
 
-def match_ocr_result(ocr_result: dict, db: list[dict], threshold: float = 80):
+def match_ocr_result(ocr_result: dict, db: list[dict]):
     results = []
     ocr_cards = ocr_result.get("cards", [])
 
     for ocr_card in ocr_cards:
         query = build_query_from_ocr_card(ocr_card)
 
-        # 不筛选了
-        cost = ocr_card.get("cost")
-        candidate_db = db
-
-        match_result = search_cards(query, candidate_db, threshold=threshold)
-        topk = search_cards_topk(query, candidate_db, limit=3)
+        match_result = search_cards(query, db)
 
         results.append({
             "ocr_card": ocr_card,
             "query": query,
-            "candidate_count": len(candidate_db),
-            "match_result": match_result,
-            "topk": topk
+            "match_result": match_result
         })
 
     return results
+
+def simplify_match_results(match_results: list[dict]) -> list[dict]:
+    simplified = []
+
+    for item in match_results:
+        match = item.get("match_result")
+        ocr_card = item.get("ocr_card", {})
+
+        if not match:
+            continue
+
+        card = match.get("card", {})
+
+        simplified.append({
+            "name": card.get("name"),
+            "cost": card.get("cost"),
+            "attack": card.get("attack"),
+            "defense": card.get("defense"),
+            "keywords": card.get("keywords"),
+            "description": card.get("description"),
+            "type": card.get("type"),
+            "count": ocr_card.get("count", 1)
+        })
+
+    return simplified

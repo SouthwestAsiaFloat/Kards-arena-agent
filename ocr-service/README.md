@@ -248,6 +248,7 @@ pip install paddlepaddle
   "seq_id": "card_0001",
   "name": "第92步兵团",
   "nation": "波兰",
+  "type": "unit",
   "cost": 4,
   "attack": 4,
   "defense": 5,
@@ -340,6 +341,37 @@ agent 解决“该不该选这张卡”
 
 ---
 
+返回结果示例:
+
+---
+[
+  {
+    "name": "哈利法克斯 B Mk I",
+    "cost": 7,
+    "attack": 5,
+    "defense": 4,
+    "type": "unit",
+    "count": 1
+  },
+  {
+    "name": "USS 约克城号",
+    "cost": 5,
+    "attack": null,
+    "defense": null,
+    "type": "order"
+    "count": 2
+  },
+  {
+    "name": "红魔空降步兵团",
+    "cost": 1,
+    "attack": 1,
+    "defense": 3,
+    "type": "unit"
+    "count": 1
+  }
+
+]
+---
 
 
 

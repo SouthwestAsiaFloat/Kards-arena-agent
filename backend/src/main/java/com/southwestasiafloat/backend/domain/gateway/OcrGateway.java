@@ -1,7 +1,5 @@
 package com.southwestasiafloat.backend.domain.gateway;
 
 public interface OcrGateway {
-
-    String extractTextFromImage(String imageBase64);
+    String analyzeImage(byte[] imageBytes);
 }
-
