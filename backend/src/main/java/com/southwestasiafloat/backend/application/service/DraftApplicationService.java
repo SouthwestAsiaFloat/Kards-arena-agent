@@ -2,18 +2,24 @@ package com.southwestasiafloat.backend.application.service;
 
 import com.southwestasiafloat.backend.application.service.toolcalling.ToolCallingDraftAnalyzeService;
 import com.southwestasiafloat.backend.application.service.toolcalling.model.ToolCallingDraftAnalysisResult;
+import com.southwestasiafloat.backend.domain.gateway.AnalyzeRequestLockManager;
+import com.southwestasiafloat.backend.domain.gateway.AnalyzeResultCache;
+import com.southwestasiafloat.backend.domain.gateway.SessionLockManager;
+import com.southwestasiafloat.backend.domain.gateway.SessionRepository;
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.DraftHistoryEntry;
 import com.southwestasiafloat.backend.domain.model.DraftSession;
 import com.southwestasiafloat.backend.domain.model.FinalDecision;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
-import com.southwestasiafloat.backend.infrastructure.repository.InMemorySessionRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,20 +31,93 @@ public class DraftApplicationService {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final ToolCallingDraftAnalyzeService toolCallingDraftAnalyzeService;
-    private final InMemorySessionRepository repository;
+    private final SessionRepository repository;
+    private final SessionLockManager sessionLockManager;
+    private final AnalyzeResultCache analyzeResultCache;
+    private final AnalyzeRequestLockManager analyzeRequestLockManager;
 
     public DraftApplicationService(ToolCallingDraftAnalyzeService toolCallingDraftAnalyzeService,
-                                   InMemorySessionRepository repository) {
+                                   SessionRepository repository,
+                                   SessionLockManager sessionLockManager,
+                                   AnalyzeResultCache analyzeResultCache,
+                                   AnalyzeRequestLockManager analyzeRequestLockManager) {
         this.toolCallingDraftAnalyzeService = toolCallingDraftAnalyzeService;
         this.repository = repository;
+        this.sessionLockManager = sessionLockManager;
+        this.analyzeResultCache = analyzeResultCache;
+        this.analyzeRequestLockManager = analyzeRequestLockManager;
     }
 
     public DraftAnalyzeResponse analyze(MultipartFile file, String sessionId) throws Exception {
-        ToolCallingDraftAnalysisResult analysisResult =
-                toolCallingDraftAnalyzeService.analyze(file.getBytes(), sessionId);
+        byte[] imageBytes = file.getBytes();
+        if (sessionId != null && !sessionId.isBlank()) {
+            return sessionLockManager.withSessionLock(sessionId, () -> analyzeLocked(imageBytes, sessionId));
+        }
+        return analyzeLocked(imageBytes, sessionId);
+    }
 
-        saveAnalyzeHistory(sessionId, analysisResult.offeredCards(), analysisResult.decision());
-        return new DraftAnalyzeResponse(analysisResult.offeredCards(), analysisResult.decision());
+    private DraftAnalyzeResponse analyzeLocked(byte[] imageBytes, String sessionId) {
+        String cacheKey = buildAnalyzeCacheKey(sessionId, imageBytes);
+
+        Optional<DraftAnalyzeResponse> cached = analyzeResultCache.get(cacheKey);
+        if (cached.isPresent()) {
+            log.info("Reused cached analyze result for key={}", cacheKey);
+            return cached.get();
+        }
+
+        return analyzeWithDedup(cacheKey, imageBytes, sessionId);
+    }
+
+    private DraftAnalyzeResponse analyzeWithDedup(String cacheKey, byte[] imageBytes, String sessionId) {
+        return analyzeRequestLockManager.withAnalyzeLock(cacheKey, () -> {
+            Optional<DraftAnalyzeResponse> cached = analyzeResultCache.get(cacheKey);
+            if (cached.isPresent()) {
+                log.info("Reused cached analyze result after waiting for key={}", cacheKey);
+                return cached.get();
+            }
+
+            ToolCallingDraftAnalysisResult analysisResult =
+                    toolCallingDraftAnalyzeService.analyze(imageBytes, sessionId);
+
+            DraftAnalyzeResponse response =
+                    new DraftAnalyzeResponse(analysisResult.offeredCards(), analysisResult.decision());
+
+            saveAnalyzeHistory(sessionId, analysisResult.offeredCards(), analysisResult.decision());
+            analyzeResultCache.put(cacheKey, response);
+            return response;
+        });
+    }
+
+    private String buildAnalyzeCacheKey(String sessionId, byte[] imageBytes) {
+        String sessionKey = normalizeSessionKey(sessionId);
+        int pickNo = resolveCurrentPickNo(sessionId);
+        return sessionKey + ":" + pickNo + ":" + sha256Hex(imageBytes);
+    }
+
+    private String normalizeSessionKey(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return "analysis-only";
+        }
+        return sessionId;
+    }
+
+    private int resolveCurrentPickNo(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return 0;
+        }
+
+        return repository.findById(sessionId)
+                .map(DraftSession::getCurrentPickNo)
+                .orElse(0);
+    }
+
+    private String sha256Hex(byte[] imageBytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(imageBytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 
     private void saveAnalyzeHistory(String sessionId,
@@ -48,25 +127,27 @@ public class DraftApplicationService {
             return;
         }
 
-        Optional<DraftSession> sessionOptional = repository.findById(sessionId);
-        if (sessionOptional.isEmpty()) {
-            log.warn("Skip history persistence because session {} does not exist", sessionId);
-            return;
-        }
+        sessionLockManager.runWithSessionLock(sessionId, () -> {
+            Optional<DraftSession> sessionOptional = repository.findById(sessionId);
+            if (sessionOptional.isEmpty()) {
+                log.warn("Skip history persistence because session {} does not exist", sessionId);
+                return;
+            }
 
-        DraftSession session = sessionOptional.get();
-        DraftHistoryEntry historyEntry = new DraftHistoryEntry();
-        historyEntry.setPickNo(session.getCurrentPickNo());
-        historyEntry.setAnalyzedAt(LocalDateTime.now().format(HISTORY_TIME_FORMATTER));
-        historyEntry.setOfferedCards(cards);
-        historyEntry.setRecommendedCard(extractRecommendedCard(decision));
-        historyEntry.setDecisionSource(decision != null ? decision.getDecisionSource() : null);
-        historyEntry.setFinalScore(decision != null ? decision.getFinalScore() : null);
-        historyEntry.setReason(resolveReason(decision));
-        historyEntry.setStatus("待确认");
+            DraftSession session = sessionOptional.get();
+            DraftHistoryEntry historyEntry = new DraftHistoryEntry();
+            historyEntry.setPickNo(session.getCurrentPickNo());
+            historyEntry.setAnalyzedAt(LocalDateTime.now().format(HISTORY_TIME_FORMATTER));
+            historyEntry.setOfferedCards(cards);
+            historyEntry.setRecommendedCard(extractRecommendedCard(decision));
+            historyEntry.setDecisionSource(decision != null ? decision.getDecisionSource() : null);
+            historyEntry.setFinalScore(decision != null ? decision.getFinalScore() : null);
+            historyEntry.setReason(resolveReason(decision));
+            historyEntry.setStatus("PENDING_CONFIRMATION");
 
-        session.addHistoryEntry(historyEntry);
-        repository.save(session);
+            session.addHistoryEntry(historyEntry);
+            repository.save(session);
+        });
     }
 
     private Card extractRecommendedCard(FinalDecision decision) {
@@ -78,7 +159,7 @@ public class DraftApplicationService {
 
     private String resolveReason(FinalDecision decision) {
         if (decision == null) {
-            return "后端未返回推荐理由";
+            return "Backend did not return a recommendation reason.";
         }
 
         if (decision.getLlmReason() != null && !decision.getLlmReason().isBlank()) {
@@ -91,6 +172,6 @@ public class DraftApplicationService {
             return decision.getRecommendedCard().getComment();
         }
 
-        return "后端未返回推荐理由";
+        return "Backend did not return a recommendation reason.";
     }
 }

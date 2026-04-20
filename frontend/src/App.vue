@@ -288,8 +288,8 @@
             <el-table-column prop="picked" label="实选" min-width="150" />
             <el-table-column label="状态" min-width="110">
               <template #default="scope">
-                <el-tag :type="scope.row.status === '待确认' ? 'warning' : 'success'" effect="light">
-                  {{ scope.row.status }}
+                <el-tag :type="isPendingStatus(scope.row.status) ? 'warning' : 'success'" effect="light">
+                  {{ formatHistoryStatus(scope.row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -324,7 +324,7 @@ const latestHistoryEntry = computed(() => {
 })
 
 const pendingHistoryEntry = computed(() => {
-  return latestHistoryEntry.value?.status === '待确认' ? latestHistoryEntry.value : null
+  return isPendingStatus(latestHistoryEntry.value?.status) ? latestHistoryEntry.value : null
 })
 
 const displayCards = computed(() => {
@@ -490,6 +490,22 @@ function formatCardType(type) {
   }
 
   return type
+}
+
+function isPendingStatus(status) {
+  return status === '待确认' || status === 'PENDING_CONFIRMATION'
+}
+
+function formatHistoryStatus(status) {
+  if (status === 'PENDING_CONFIRMATION') {
+    return '待确认'
+  }
+
+  if (status === 'CONFIRMED') {
+    return '已确认'
+  }
+
+  return status || '已完成'
 }
 
 function isSameCard(card, candidateName) {

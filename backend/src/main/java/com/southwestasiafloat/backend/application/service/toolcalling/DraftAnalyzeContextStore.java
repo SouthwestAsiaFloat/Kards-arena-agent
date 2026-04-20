@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.application.service.toolcalling.model.RuleRankingResult;
 import com.southwestasiafloat.backend.domain.gateway.OcrGateway;
+import com.southwestasiafloat.backend.domain.gateway.SessionRepository;
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.CardEvaluationResult;
 import com.southwestasiafloat.backend.domain.model.DeckState;
@@ -12,7 +13,6 @@ import com.southwestasiafloat.backend.domain.model.DraftSession;
 import com.southwestasiafloat.backend.domain.model.OfferedCards;
 import com.southwestasiafloat.backend.domain.service.CardEvaluationService;
 import com.southwestasiafloat.backend.domain.service.DeckStateAnalyzer;
-import com.southwestasiafloat.backend.infrastructure.repository.InMemorySessionRepository;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
@@ -31,14 +31,14 @@ public class DraftAnalyzeContextStore {
     private final ObjectMapper objectMapper;
     private final CardEvaluationService cardEvaluationService;
     private final RuleBasedDraftRankingService ruleBasedDraftRankingService;
-    private final InMemorySessionRepository sessionRepository;
+    private final SessionRepository sessionRepository;
     private final DeckStateAnalyzer deckStateAnalyzer;
 
     public DraftAnalyzeContextStore(OcrGateway ocrGateway,
                                     ObjectMapper objectMapper,
                                     CardEvaluationService cardEvaluationService,
                                     RuleBasedDraftRankingService ruleBasedDraftRankingService,
-                                    InMemorySessionRepository sessionRepository,
+                                    SessionRepository sessionRepository,
                                     DeckStateAnalyzer deckStateAnalyzer) {
         this.ocrGateway = ocrGateway;
         this.objectMapper = objectMapper;

@@ -7,6 +7,24 @@ ocr:
   base-url: http://127.0.0.1:18000
   path: /ocr
 
+arena:
+  session:
+    store-type: in-memory
+    ttl: PT12H
+    redis-map-name: arena:draft:sessions
+    lock-key-prefix: arena:draft:locks:sessions
+  analysis:
+    cache-ttl: PT10M
+    redis-map-name: arena:draft:analysis-cache
+    lock-key-prefix: arena:draft:locks:analyze
+  redis:
+    address: redis://127.0.0.1:6379
+    database: 0
+    client-name: arena-agent
+    connect-timeout: PT10S
+    timeout: PT3S
+    lock-watchdog-timeout: PT30S
+
 spring:
   servlet:
     multipart:

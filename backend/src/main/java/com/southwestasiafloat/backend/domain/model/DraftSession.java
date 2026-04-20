@@ -1,19 +1,20 @@
 package com.southwestasiafloat.backend.domain.model;
 
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.ArrayList;
 import java.util.List;
 
-// 目前已选卡牌列表和当前牌堆状态
 @Data
+@NoArgsConstructor
 public class DraftSession {
 
     private String sessionId;
     private List<Card> pickedCards = new ArrayList<>();
     private List<DraftHistoryEntry> history = new ArrayList<>();
     private DeckState deckState;
-    private Integer currentPickNo;
+    private Integer currentPickNo = 1;
 
     public DraftSession(String sessionId) {
         this.sessionId = sessionId;
@@ -36,7 +37,6 @@ public class DraftSession {
 
         DraftHistoryEntry latestHistory = this.history.get(0);
         latestHistory.setPickedCard(pickedCard);
-        latestHistory.setStatus("已确认");
+        latestHistory.setStatus("CONFIRMED");
     }
 }
-

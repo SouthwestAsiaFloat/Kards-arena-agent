@@ -1,377 +1,217 @@
-
-当然可以。下面我直接给你一版**适合你这个 `ocr_service` 项目当前阶段的 README**，你可以直接复制到 `ocr-service/README.md` 里，再按你实际目录稍微改一下。
-
----
-
-````markdown
 # OCR Service
 
-Kards 竞技场截图识别服务。
+`ocr-service` 是 Kards 竞技场截图识别服务。
 
-本服务负责对 Kards 竞技场选牌截图进行 OCR 识别、卡牌文本结构化解析，以及基于 RapidFuzz 的卡牌数据库模糊匹配，最终输出较为标准化的卡牌识别结果，供后续 agent / backend 决策模块调用。
+它负责把竞技场三选一截图转换成后端可以直接消费的标准卡牌对象，重点不是做最终推荐，而是把“这张图里到底是哪 3 张卡”尽可能稳定地识别出来。
 
----
+## 当前职责
 
-## 项目目标
+服务当前负责：
 
-本服务主要解决以下问题：
+- 接收竞技场截图
+- 检测 3 张候选卡区域
+- 用 `PaddleOCR` 提取标题、正文、费用、数量等文本
+- 做文本清洗与归一化
+- 用 `RapidFuzz` 在本地卡库中做模糊匹配
+- 返回标准卡牌结构
 
-1. 从竞技场截图中识别出 3 张候选卡的文本信息
-2. 将 OCR 的脏文本整理成结构化字段
-3. 通过模糊匹配将 OCR 结果映射到本地卡牌数据库中的标准卡牌
-4. 为上层选牌 agent 提供稳定的输入数据
-
-简而言之，本项目的职责是：
+一句话概括：
 
 ```text
-截图 -> OCR -> 文本解析 -> 模糊匹配 -> 标准卡牌结果
-````
-
----
-
-## 当前状态
-
-当前 `ocr_service` 已经完成基础流程打通：
-
-* 已支持 FastAPI 服务启动
-* 已支持竞技场三选一卡牌截图解析
-* 已支持 OCR 文本结构化输出
-* 已支持 RapidFuzz 模糊搜索
-* 已支持全库卡牌匹配
-* 已支持 TopK 候选返回，便于调试
-* 已支持 OCR 文本清洗与归一化
-
-在当前数据规模和样本测试下，整体识别效果已经可以使用。
-由于测试数据量仍然有限，尚未对极端场景和大规模样本进行严格鲁棒性评估，但目前主观测试正确率约可达到 90% 左右。
-
----
+截图 -> 区域切分 -> OCR -> 文本解析 -> 模糊匹配 -> 标准卡牌对象
+```
 
 ## 技术栈
 
-* Python 3.10+
-* FastAPI
-* Uvicorn
-* PaddleOCR
-* RapidFuzz
+- Python 3.10+
+- FastAPI
+- Uvicorn
+- OpenCV
+- PaddleOCR
+- RapidFuzz
 
----
-
-## 项目结构
-
-一个典型结构如下：
+## 目录结构
 
 ```text
 ocr-service/
 ├── app/
-│   └── main.py                  # FastAPI 入口
+│   └── main.py
 ├── core/
-│   ├── ocr_runner.py            # OCR 引擎封装
-│   ├── layout_parser.py         # 版面切分 / 卡牌区域解析
-│   ├── card_parser.py           # 单卡文本解析与归一化
-│   └── search_cards.py          # RapidFuzz 模糊搜索模块
+│   ├── card_parser.py
+│   ├── layout_parser.py
+│   ├── ocr_runner.py
+│   ├── pipeline.py
+│   └── search_cards.py
 ├── data/
-│   └── cards.json               # 本地卡牌数据库
-├── test_images/                 # 测试图片（可选）
-├── requirements.txt             # 依赖列表（可选）
+│   └── cards.json
+├── test/
+├── requirements.txt
 └── README.md
 ```
 
-如你的实际目录与上述略有不同，请以实际项目为准。
+### 关键文件
 
----
+- `app/main.py`
+  FastAPI 入口，提供 `/ocr`
+- `core/layout_parser.py`
+  负责检测三张卡的位置与子区域
+- `core/ocr_runner.py`
+  封装 PaddleOCR 调用和 OCR 结果排序
+- `core/pipeline.py`
+  串联截图切分、OCR 和中间结构输出
+- `core/card_parser.py`
+  负责 OCR 结果字段化和清洗
+- `core/search_cards.py`
+  基于 RapidFuzz 做卡牌数据库模糊匹配
 
-## 核心流程
+## 当前接口
 
-本服务的主流程如下：
+### `POST /ocr`
 
-```text
-1. 接收竞技场截图
-2. OCR 识别整张图中的文本框
-3. 根据布局将文本分配到 3 张候选卡
-4. 对每张卡做字段提取：
-   - name
-   - cost
-   - count
-   - raw_texts
-   - raw_text
-5. 对 OCR 文本做清洗与归一化
-6. 使用 RapidFuzz 在本地卡牌数据库中进行模糊匹配
-7. 返回标准卡牌信息与匹配分数
+请求：
+
+- `multipart/form-data`
+- 字段名：`file`
+
+示例：
+
+```bash
+curl -X POST "http://127.0.0.1:18000/ocr" \
+  -F "file=@D:/screenshots/pick-01.png"
 ```
 
----
-
-## OCR 输出示例
-
-OCR 解析后的中间结果大致如下：
+返回示例：
 
 ```json
-{
-  "cards": [
-    {
-      "name": "第92步兵团十",
-      "name_raw": "第92步兵团十",
-      "cost": 4,
-      "cost_raw": "4",
-      "count": 1,
-      "raw_texts": [
-        "第92步兵团十",
-        "协力，冲击",
-        "部署：从“鹰爪”、“空中男爵”和“战术打击”中开发1张。"
-      ],
-      "raw_text": "第92步兵团十\n协力，冲击\n部署：从“鹰爪”、“空中男爵”和“战术打击”中开发1张。"
-    }
-  ]
-}
+[
+  {
+    "id": "xxxx",
+    "seq_id": "card_0001",
+    "name": "驱敌入海",
+    "nation": "Japan",
+    "cost": 3,
+    "attack": null,
+    "defense": null,
+    "keywords": ["部署"],
+    "description": "移除1个单位。下个友方回合开始时，将其返回手牌。",
+    "type": "order",
+    "count": 1
+  }
+]
 ```
 
-这里的 `name` / `cost` 等字段仍然可能包含 OCR 噪音，因此还需要后续模糊匹配映射到标准卡牌数据库。
+## 内部流程
 
----
+服务当前的处理顺序是：
 
-## 模糊匹配说明
+1. 读取上传图片
+2. 加载本地 `cards.json`
+3. 识别三张卡的大致布局
+4. OCR 提取每张卡的标题、正文、费用、数量文本
+5. 生成结构化 OCR 中间结果
+6. 清洗文本并构造模糊查询
+7. 用 RapidFuzz 搜索最接近的标准卡牌
+8. 返回简化后的卡牌结果
 
-本项目使用 RapidFuzz 对 OCR 结果进行模糊搜索。
+## 安装与运行
 
-核心思路是：
+### 1. 创建虚拟环境
 
-* 将数据库中每张卡的 `name + keywords + description` 拼接成可检索文本
-* 对 OCR 输出的 `raw_texts` 进行清洗与归一化
-* 使用 `WRatio` 进行近似匹配
-* 返回最佳匹配结果及 TopK 候选结果
-
-示意流程：
-
-```text
-OCR 脏文本 -> clean -> normalize -> RapidFuzz -> 标准卡牌
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
 ```
 
-### 为什么需要模糊匹配
+### 2. 安装基础依赖
 
-因为 OCR 结果往往存在这些问题：
-
-* 名字识别错字
-* 花费识别异常
-* 标点和空格不统一
-* 中文文本断裂
-* 白板卡缺少描述信息
-
-直接按精确字符串匹配几乎不可行，因此需要模糊搜索作为中间层。
-
----
-
-## 文本清洗与归一化
-
-为提高匹配效果，项目中对文本做了两层处理：
-
-### 1. OCR 文本清洗
-
-用于去掉明显噪音，例如：
-
-* 纯数字
-* 费用角标，如 `3K`、`3K2`、`2'`
-* 单字符噪音
-
-### 2. 文本归一化
-
-用于统一文本格式，例如：
-
-* 去空格
-* 统一中英文标点
-* 去掉引号
-* 大小写统一
-
-这对中文 OCR 模糊匹配尤其重要。
-
----
-
-## API 启动
-
-在项目根目录下运行：
-
-```bash
-uvicorn app.main:app --reload
-```
-
-或者：
-
-```bash
-python -m uvicorn app.main:app --reload
-```
-
-启动后默认地址为：
-
-```text
-http://127.0.0.1:8000
-```
-
-接口文档地址：
-
-```text
-http://127.0.0.1:18000/docs
-```
-
----
-
-## 依赖安装
-
-建议先创建虚拟环境，再安装依赖：
-
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-如果你当前还没有整理 `requirements.txt`，至少需要安装：
+### 3. 补装 OCR / 模糊匹配依赖
 
-```bash
-pip install fastapi uvicorn rapidfuzz paddleocr
+当前仓库里的 `requirements.txt` 仍是最小基础集合，没有把下面这些依赖完整写进去，首次运行请手动补装：
+
+```powershell
+pip install rapidfuzz paddleocr paddlepaddle
 ```
 
-根据你的实际 OCR 依赖，可能还需要安装：
+如果你使用 GPU，请安装与本机环境匹配的 `paddlepaddle-gpu`。
 
-```bash
-pip install paddlepaddle
+### 4. 启动服务
+
+```powershell
+uvicorn app.main:app --host 127.0.0.1 --port 18000
 ```
 
-如果使用 GPU，请按 PaddlePaddle 官方说明安装对应版本。
+服务地址：
 
----
+- `http://127.0.0.1:18000`
 
-## 数据库说明
+## 调试与测试
 
-本项目依赖本地卡牌数据库 `cards.json`。
-每张卡牌通常包含如下字段：
+### 命令行调用接口
 
-```json
-{
-  "id": "xxxx",
-  "seq_id": "card_0001",
-  "name": "第92步兵团",
-  "nation": "波兰",
-  "type": "unit",
-  "cost": 4,
-  "attack": 4,
-  "defense": 5,
-  "keywords": ["协力", "冲击"],
-  "description": "部署：从“鹰爪”、“空中男爵”和“战术打击”中开发1张。",
-  "image": "..."
-}
+仓库里有一个简单的接口测试脚本：
+
+```powershell
+python test/test_parse_image.py D:/screenshots/pick-01.png
 ```
 
-数据库质量会直接影响最终匹配效果。
+默认会请求：
 
-当前服务的识别上限，受到以下两方面共同决定：
+- `http://127.0.0.1:18000/ocr`
 
-1. OCR 的识别质量
-2. 本地卡牌数据库的完整性与字段质量
+### 单元测试
 
----
+当前 `test/` 目录中有部分 OCR runner 相关测试，但也有一些旧测试还没有完全跟随当前实现更新。
 
-## 当前已知问题
+如果你要继续补测试，建议优先覆盖：
 
-### 1. 白板卡匹配更难
+- OCR 文本排序
+- 区域切分
+- 费用 / 数量误识别场景
+- 模糊匹配命中率
 
-没有描述的白板卡只能依赖名字匹配。
-一旦 OCR 名字识别有误，匹配成功率会明显下降。
+## 当前已完成
 
-### 2. OCR 对费用和计数可能误识别
+- FastAPI 服务入口
+- PaddleOCR 进程内复用与预热
+- 三张卡区域切分
+- 标题 / 正文 / 费用 / 数量的拆分识别
+- 文本清洗和归一化
+- 基于 `WRatio` 的模糊匹配
+- 返回可直接给后端使用的标准卡牌结构
 
-例如：
+## 当前限制
 
-* `1k` 被识别成 `14`
-* `2x` 被识别异常
+- `requirements.txt` 还没完全覆盖真实依赖
+- 白板卡和低质量截图仍然更难识别
+- 当前匹配策略仍以字符串相似度为主
+- 缺少系统化的 Top1 / Top3 指标统计
+- 暂未做统一的 benchmark 和效果回归报表
 
-因此当前版本不强依赖费用筛选，而更偏向全库检索，避免误筛候选。
+## 和后端的关系
 
-### 3. 数据规模仍有限
+`ocr-service` 不负责最终选牌决策。
 
-虽然主流程已经跑通，但当前测试数据量仍不足以全面验证鲁棒性。
-后续还需要更多截图样本做压力测试和误差分析。
-
----
-
-## 后续计划
-
-* 增加更多截图测试样本
-* 统计 Top1 / Top3 命中率
-* 优化白板卡匹配策略
-* 优化名字与描述分权重打分
-* 增加更细粒度的日志与调试信息
-* 与后端 agent 服务对接
-* 提供正式的 `/analyze` 图片上传接口
-
----
-
-## 与 Agent 的关系
-
-`ocr_service` 本身不负责“选哪张卡”。
-
-它的职责是：
+它负责解决的是：
 
 ```text
-把截图中的 3 张模糊卡牌，尽可能还原成标准卡牌对象
+这张截图里是哪 3 张卡
 ```
 
-之后再交给上层 agent / backend 去做：
+最终的推荐与会话维护由 `backend` 负责：
 
-* 评分
-* 体系判断
-* 卡组协同分析
-* 最终选牌决策
+- 候选卡评分
+- 知识检索增强
+- 推荐理由生成
+- 历史记录和牌组状态维护
 
-也就是说：
+## 推荐后续补齐
 
-```text
-ocr_service 解决“这是什么卡”
-agent 解决“该不该选这张卡”
-```
-
----
-
-## 开发备注
-
-在开发阶段，建议重点关注以下指标：
-
-* 正确答案是否能稳定进入 Top3
-* 高分匹配是否基本可信
-* OCR 噪音是否被有效清洗
-* 白板卡是否存在系统性误匹配
-
-当前版本优先目标不是极限性能，而是稳定性和可调试性。
-
----
-
-返回结果示例:
-
----
-[
-  {
-    "name": "哈利法克斯 B Mk I",
-    "cost": 7,
-    "attack": 5,
-    "defense": 4,
-    "type": "unit",
-    "count": 1
-  },
-  {
-    "name": "USS 约克城号",
-    "cost": 5,
-    "attack": null,
-    "defense": null,
-    "type": "order"
-    "count": 2
-  },
-  {
-    "name": "红魔空降步兵团",
-    "cost": 1,
-    "attack": 1,
-    "defense": 3,
-    "type": "unit"
-    "count": 1
-  }
-
-]
----
-
-
-
+- 把 `rapidfuzz`、`paddleocr`、`paddlepaddle` 补进 `requirements.txt`
+- 增加一套稳定的示例截图测试集
+- 增加 Top1 / Top3 统计脚本
+- 补充 OCR 失败样本日志和调试输出
+- 进一步优化白板卡与模糊文本的识别策略
