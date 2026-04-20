@@ -6,9 +6,9 @@ import requests
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Call /parse-arena with an image file.")
+    parser = argparse.ArgumentParser(description="Call /ocr with an image file.")
     parser.add_argument("image", type=Path, help="Path to arena screenshot")
-    parser.add_argument("--url", default="http://127.0.0.1:8000/parse-arena", help="API endpoint URL")
+    parser.add_argument("--url", default="http://127.0.0.1:18000/ocr", help="API endpoint URL")
     args = parser.parse_args()
 
     if not args.image.exists():

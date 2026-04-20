@@ -1,9 +1,9 @@
 """
-OCR 文本检索模块。
+OCR text matching helpers.
 """
 import re
-from rapidfuzz import process, fuzz
 
+from rapidfuzz import fuzz, process
 
 from core.card_parser import normalize_text
 
@@ -16,15 +16,12 @@ def clean_raw_texts(raw_texts: list[str]) -> list[str]:
         if not text:
             continue
 
-        # 去掉纯数字
         if text.isdigit():
             continue
 
-        # 去掉类似 3K / 3K2 / 2' / 5k 这种费用噪音
         if re.fullmatch(r"[0-9]+[kK]?[0-9]*'?|[kK]", text):
             continue
 
-        # 去掉单个字符
         if len(text) == 1:
             continue
 
@@ -40,14 +37,12 @@ def build_search_text(card: dict) -> str:
     text = f"{name} {name} {keywords} {description}".strip()
     return normalize_text(text)
 
-# 这是一个带回退的cost筛选， 如果ocr识别cost错误， 将会全库搜索
+
 def filter_db_by_cost_with_fallback(db: list[dict], cost: int | None) -> list[dict]:
     if cost is None:
         return db
 
     filtered = [card for card in db if card.get("cost") == cost]
-
-    # 如果按 cost 过滤后为空，就回退到全库
     if not filtered:
         return db
 
@@ -61,27 +56,32 @@ def search_cards(query: str, db: list[dict]):
     query = normalize_text(query)
     choices = [build_search_text(card) for card in db]
 
-    result = process.extractOne(
-        query,
-        choices,
-        scorer=fuzz.WRatio
-    )
-
+    result = process.extractOne(query, choices, scorer=fuzz.WRatio)
     if result is None:
         return None
 
     matched_text, score, index = result
-
     return {
         "card": db[index],
         "matched_text": matched_text,
         "score": score,
     }
 
+
 def build_query_from_ocr_card(ocr_card: dict) -> str:
-    raw_texts = ocr_card.get("raw_texts", [])
-    raw_texts = clean_raw_texts(raw_texts)
-    query = " ".join(raw_texts).strip()
+    name_texts = clean_raw_texts(ocr_card.get("name_raw_texts", []) or [])
+    body_texts = clean_raw_texts(ocr_card.get("body_raw_texts", []) or [])
+    raw_texts = clean_raw_texts(ocr_card.get("raw_texts", []) or [])
+
+    prioritized = []
+    prioritized.extend(name_texts)
+    prioritized.extend(name_texts)
+    prioritized.extend(body_texts[:2])
+
+    if not prioritized:
+        prioritized = raw_texts
+
+    query = " ".join(prioritized).strip()
     return normalize_text(query)
 
 
@@ -91,8 +91,8 @@ def match_ocr_result(ocr_result: dict, db: list[dict]):
 
     for ocr_card in ocr_cards:
         query = build_query_from_ocr_card(ocr_card)
-
-        match_result = search_cards(query, db)
+        filtered_db = filter_db_by_cost_with_fallback(db, ocr_card.get("cost"))
+        match_result = search_cards(query, filtered_db)
 
         results.append({
             "ocr_card": ocr_card,
@@ -101,6 +101,7 @@ def match_ocr_result(ocr_result: dict, db: list[dict]):
         })
 
     return results
+
 
 def simplify_match_results(match_results: list[dict]) -> list[dict]:
     simplified = []
@@ -115,7 +116,10 @@ def simplify_match_results(match_results: list[dict]) -> list[dict]:
         card = match.get("card", {})
 
         simplified.append({
+            "id": card.get("id"),
+            "seq_id": card.get("seq_id"),
             "name": card.get("name"),
+            "nation": card.get("nation"),
             "cost": card.get("cost"),
             "attack": card.get("attack"),
             "defense": card.get("defense"),

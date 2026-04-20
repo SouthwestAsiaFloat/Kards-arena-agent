@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "collections": [
+    {
+      "id": "arena-strategy-guides",
+      "title": "KARDS Arena Strategy Guides",
+      "description": "Stable arena drafting heuristics, nation overviews, and deckbuilding principles.",
+      "files": [
+        "knowledge-base/arena-strategy-guides/tieba-arena-guides.jsonl"
+      ]
+    },
+    {
+      "id": "game-mechanics-glossary",
+      "title": "KARDS Game Mechanics Glossary",
+      "description": "Keyword and mechanic glossary for explanations, retrieval, and agent grounding.",
+      "files": [
+        "knowledge-base/game-mechanics-glossary/fandom-keywords.jsonl"
+      ]
+    }
+  ]
+}

@@ -1,11 +1,10 @@
-# ocr-service/core/layout_parser.py
 import cv2
 
 
 def resize_to_fixed_width(image, target_width=1440):
     h, w = image.shape[:2]
     if w == 0:
-        raise ValueError("输入图片宽度为0，无法缩放")
+        raise ValueError("Input image width is 0, unable to resize.")
     scale = target_width / w
     new_h = int(h * scale)
     return cv2.resize(image, (target_width, new_h))
@@ -22,6 +21,11 @@ def clamp_bbox(x1, y1, x2, y2, shape):
     x2 = clamp(x2, 0, w)
     y2 = clamp(y2, 0, h)
     return x1, y1, x2, y2
+
+
+def crop_bbox_roi(image, bbox):
+    x1, y1, x2, y2 = bbox
+    return image[y1:y2, x1:x2]
 
 
 def bbox_iou(box1, box2):
@@ -54,9 +58,6 @@ def bbox_iou(box1, box2):
 
 
 def deduplicate_boxes(boxes, iou_threshold=0.6):
-    """
-    去掉高度重叠的重复框，保留面积更大的
-    """
     boxes = sorted(boxes, key=lambda b: b[2] * b[3], reverse=True)
     result = []
 
@@ -73,9 +74,6 @@ def deduplicate_boxes(boxes, iou_threshold=0.6):
 
 
 def filter_card_candidates(contours, img_shape):
-    """
-    从轮廓中过滤出“像卡牌的矩形”
-    """
     h_img, w_img = img_shape[:2]
     img_area = h_img * w_img
     candidates = []
@@ -89,37 +87,23 @@ def filter_card_candidates(contours, img_shape):
         area = w * h
         ratio = h / w
 
-        # 过滤太小的东西
         if area < 20000:
             continue
 
-        # 卡牌大致是竖长方形
         if not (1.2 < ratio < 2.8):
             continue
 
-        # 过滤掉过大的整体区域（比如整块UI）
         if area > img_area * 0.4:
             continue
 
         candidates.append((x, y, w, h))
 
-    # 去重
     candidates = deduplicate_boxes(candidates, iou_threshold=0.6)
-
-    # 按 x 排序，方便后面选左中右
     candidates = sorted(candidates, key=lambda c: c[0])
-
     return candidates
 
 
 def pick_best_three(candidates):
-    """
-    从候选框中选出最可能的三张卡
-    当前策略：
-    1. 候选至少3个
-    2. 优先找高度接近、y位置接近的三个框
-    3. 如果找不到，就退化成最左 / 中 / 右
-    """
     if len(candidates) < 3:
         return None
 
@@ -141,7 +125,6 @@ def pick_best_three(candidates):
                 h_spread = max(hs) - min(hs)
                 w_spread = max(ws) - min(ws)
 
-                # 分数越小越好：希望三张卡顶部接近，高度接近，宽度接近
                 score = y_spread * 2 + h_spread * 1.5 + w_spread
 
                 if score < best_score:
@@ -151,7 +134,6 @@ def pick_best_three(candidates):
     if best_triplet is not None:
         return best_triplet
 
-    # fallback
     return [candidates[0], candidates[len(candidates) // 2], candidates[-1]]
 
 
@@ -173,30 +155,74 @@ def build_overall_bbox(cards, img_shape, pad_ratio_x=0.05, pad_ratio_y=0.05):
 
 
 def build_count_bbox(card_bbox, img_shape):
-    """
-    为单张卡构造数量区域（用于检测 2x 这种标记）
-    注意：数量区域通常在卡牌下方偏右，所以 y 会略微超出卡牌底边
-    """
     x, y, w, h = card_bbox
 
     rx1 = x + int(w * 0.42)
     rx2 = x + int(w * 0.78)
-
     ry1 = y + int(h * 1.00)
     ry2 = y + int(h * 1.18)
 
     return clamp_bbox(rx1, ry1, rx2, ry2, img_shape)
 
 
+def build_cost_bbox(card_bbox, img_shape):
+    x, y, w, h = card_bbox
+    return clamp_bbox(
+        x + int(w * 0.00),
+        y + int(h * 0.00),
+        x + int(w * 0.24),
+        y + int(h * 0.20),
+        img_shape,
+    )
+
+
+def build_title_bbox(card_bbox, img_shape):
+    x, y, w, h = card_bbox
+    return clamp_bbox(
+        x + int(w * 0.14),
+        y + int(h * 0.00),
+        x + int(w * 0.92),
+        y + int(h * 0.22),
+        img_shape,
+    )
+
+
+def build_body_bbox(card_bbox, img_shape):
+    x, y, w, h = card_bbox
+    return clamp_bbox(
+        x + int(w * 0.06),
+        y + int(h * 0.72),
+        x + int(w * 0.95),
+        y + int(h * 0.99),
+        img_shape,
+    )
+
+
+def build_card_subregions(card_bbox, img_shape):
+    return {
+        "cost_bbox": build_cost_bbox(card_bbox, img_shape),
+        "title_bbox": build_title_bbox(card_bbox, img_shape),
+        "body_bbox": build_body_bbox(card_bbox, img_shape),
+    }
+
+
 def detect_card_layout(image):
     """
-    返回统一结构：
+    Return a normalized layout payload:
     {
-        "image": 缩放后的图,
+        "image": resized image,
         "candidates": [(x, y, w, h), ...],
-        "cards": [(x, y, w, h), ...],              # 最终选中的三张卡
-        "overall_bbox": (x1, y1, x2, y2) or None,  # 整体区域
-        "count_bboxes": [(x1, y1, x2, y2), ...]    # 每张卡的数量区域
+        "cards": [(x, y, w, h), ...],
+        "overall_bbox": (x1, y1, x2, y2) or None,
+        "count_bboxes": [(x1, y1, x2, y2), ...],
+        "card_subregions": [
+            {
+                "cost_bbox": (...),
+                "title_bbox": (...),
+                "body_bbox": (...)
+            },
+            ...
+        ]
     }
     """
     img = resize_to_fixed_width(image, 1440)
@@ -205,9 +231,7 @@ def detect_card_layout(image):
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blur, 50, 150)
 
-    contours, _ = cv2.findContours(
-        edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     candidates = filter_card_candidates(contours, img.shape)
     cards = pick_best_three(candidates)
@@ -219,10 +243,12 @@ def detect_card_layout(image):
             "cards": [],
             "overall_bbox": None,
             "count_bboxes": [],
+            "card_subregions": [],
         }
 
     overall_bbox = build_overall_bbox(cards, img.shape)
     count_bboxes = [build_count_bbox(card, img.shape) for card in cards]
+    card_subregions = [build_card_subregions(card, img.shape) for card in cards]
 
     return {
         "image": img,
@@ -230,35 +256,23 @@ def detect_card_layout(image):
         "cards": cards,
         "overall_bbox": overall_bbox,
         "count_bboxes": count_bboxes,
+        "card_subregions": card_subregions,
     }
 
 
 def detect_card_region(image):
-    """
-    兼容你之前的接口：
-    return img, candidates, region
-
-    但内部已经改成新的 detect_card_layout
-    """
     result = detect_card_layout(image)
     return result["image"], result["candidates"], result["overall_bbox"]
 
 
 def crop_count_rois(image, count_bboxes):
-    """
-    按 count_bboxes 裁出数量检测小图
-    """
-    rois = []
-    for x1, y1, x2, y2 in count_bboxes:
-        roi = image[y1:y2, x1:x2]
-        rois.append(roi)
-    return rois
+    return [crop_bbox_roi(image, bbox) for bbox in count_bboxes]
 
 
 def debug_draw(image_path, output_path="debug_result.jpg", save_count_rois=False):
     image = cv2.imread(image_path)
     if image is None:
-        raise ValueError(f"无法读取图片: {image_path}")
+        raise ValueError(f"Unable to read image: {image_path}")
 
     result = detect_card_layout(image)
     img = result["image"]
@@ -266,23 +280,20 @@ def debug_draw(image_path, output_path="debug_result.jpg", save_count_rois=False
     cards = result["cards"]
     region = result["overall_bbox"]
     count_bboxes = result["count_bboxes"]
+    card_subregions = result["card_subregions"]
 
     debug_img = img.copy()
 
-    # 1. 画所有候选框：绿色细框
     for x, y, w, h in candidates:
         cv2.rectangle(debug_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-    # 2. 画最终选中的三张卡：蓝色中框
     for x, y, w, h in cards:
         cv2.rectangle(debug_img, (x, y), (x + w, y + h), (255, 0, 0), 3)
 
-    # 3. 画整体区域：红色粗框
     if region is not None:
         x1, y1, x2, y2 = region
         cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 0, 255), 4)
 
-    # 4. 画数量区域：黄色框
     for idx, (x1, y1, x2, y2) in enumerate(count_bboxes):
         cv2.rectangle(debug_img, (x1, y1), (x2, y2), (0, 255, 255), 2)
         cv2.putText(
@@ -295,14 +306,20 @@ def debug_draw(image_path, output_path="debug_result.jpg", save_count_rois=False
             2,
         )
 
+    for subregions in card_subregions:
+        for color, key in [((255, 128, 0), "cost_bbox"), ((255, 0, 255), "title_bbox"), ((128, 255, 0), "body_bbox")]:
+            x1, y1, x2, y2 = subregions[key]
+            cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
+
     cv2.imwrite(output_path, debug_img)
 
-    print(f"调试图已保存到: {output_path}")
-    print(f"候选框数量: {len(candidates)}")
-    print(f"最终卡牌数量: {len(cards)}")
-    print(f"整体区域: {region}")
-    print(f"三张卡: {cards}")
-    print(f"数量区域: {count_bboxes}")
+    print(f"Debug image saved to {output_path}")
+    print(f"Candidate boxes: {len(candidates)}")
+    print(f"Selected cards: {len(cards)}")
+    print(f"Overall region: {region}")
+    print(f"Cards: {cards}")
+    print(f"Count boxes: {count_bboxes}")
+    print(f"Card subregions: {card_subregions}")
 
     if save_count_rois:
         rois = crop_count_rois(img, count_bboxes)
@@ -310,7 +327,7 @@ def debug_draw(image_path, output_path="debug_result.jpg", save_count_rois=False
             if roi.size > 0:
                 roi_path = f"count_roi_{i}.jpg"
                 cv2.imwrite(roi_path, roi)
-                print(f"数量ROI已保存: {roi_path}")
+                print(f"Saved count ROI to {roi_path}")
 
 
 if __name__ == "__main__":

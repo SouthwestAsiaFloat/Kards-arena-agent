@@ -32,7 +32,7 @@ public class ToolCallingDraftAnalyzeService {
         this.analyzeAgent = AiServices.builder(DraftAnalyzeAgent.class)
                 .chatModel(chatModel)
                 .tools(toolbox)
-                .maxSequentialToolsInvocations(10)
+                .maxSequentialToolsInvocations(12)
                 .build();
     }
 
@@ -88,10 +88,9 @@ public class ToolCallingDraftAnalyzeService {
 
         String reason = fallbackReason;
         if (!rankingResult.candidates().isEmpty()) {
-            reason = "规则排序推荐 " + rankingResult.topCardName()
-                    + "，score=" + formatScore(rankingResult.topFinalScore())
-                    + "。"
-                    + fallbackReason;
+            reason = "Rule-based ranking recommends " + rankingResult.topCardName()
+                    + " with score=" + formatScore(rankingResult.topFinalScore())
+                    + ". " + fallbackReason;
         }
 
         FinalDecision finalDecision = new FinalDecision(
@@ -149,7 +148,7 @@ public class ToolCallingDraftAnalyzeService {
 
     private String safeDecisionSource(String decisionSource) {
         if (decisionSource == null || decisionSource.isBlank()) {
-            return "tool-calling";
+            return "tool-calling-rag";
         }
         return decisionSource;
     }

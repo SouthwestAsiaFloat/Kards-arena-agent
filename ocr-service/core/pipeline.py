@@ -1,44 +1,95 @@
-
-from core.layout_parser import detect_card_layout, crop_count_rois
 import re
+
+from core.layout_parser import crop_bbox_roi, detect_card_layout, crop_count_rois
 
 
 def split_cards(image, card_bboxes):
-    """
-    按 bbox 裁出三张卡
-    """
     cards = []
     for x, y, w, h in card_bboxes:
-        card_img = image[y:y + h, x:x + w]
-        cards.append(card_img)
+        cards.append(image[y:y + h, x:x + w])
     return cards
 
 
 def join_ocr_texts(texts):
-    """
-    OCRRunner.recognize_texts 返回 List[str]
-    这里统一拼接成一个字符串，方便后续处理
-    """
     if not texts:
         return ""
     return "\n".join(t.strip() for t in texts if t and t.strip())
 
 
+def dedupe_preserve_order(texts):
+    result = []
+    seen = set()
+
+    for text in texts:
+        cleaned = (text or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+
+    return result
+
+
+def looks_like_stat_noise(text):
+    normalized = (text or "").strip().lower().replace(" ", "")
+    if not normalized:
+        return True
+
+    if re.fullmatch(r"\d+[k]?", normalized):
+        return True
+
+    if re.fullmatch(r"[x脳]?\d", normalized):
+        return True
+
+    return False
+
+
+def split_segments_by_role(segments, card_shape):
+    height, width = card_shape[:2]
+    grouped = {
+        "title": [],
+        "body": [],
+        "cost": [],
+        "misc": [],
+    }
+
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
+
+        x1, y1, x2, y2 = segment.bbox
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+
+        if center_y <= height * 0.22 and center_x <= width * 0.28:
+            grouped["cost"].append(text)
+            continue
+
+        if center_y <= height * 0.22:
+            grouped["title"].append(text)
+            continue
+
+        if center_y >= height * 0.60 and looks_like_stat_noise(text):
+            grouped["misc"].append(text)
+            continue
+
+        grouped["body"].append(text)
+
+    return {key: dedupe_preserve_order(value) for key, value in grouped.items()}
+
+
 def simple_count_parse(text):
-    """
-    更稳的数量解析：
-    优先识别 2x / 3x / 4x 这种模式
-    """
     if not text:
         return 1
 
     text = text.lower().replace(" ", "")
 
-    match = re.search(r'(\d)[x×]', text)
+    match = re.search(r"(\d)[x脳]", text)
     if match:
         return int(match.group(1))
 
-    match = re.search(r'[x×](\d)', text)
+    match = re.search(r"[x脳](\d)", text)
     if match:
         return int(match.group(1))
 
@@ -54,15 +105,12 @@ def simple_count_parse(text):
 
 
 def process_image(image, ocr_runner):
-    """
-    整体流程：
-    image -> layout -> 单卡 -> OCR -> count -> 输出
-    """
     result = detect_card_layout(image)
 
     img = result["image"]
     card_bboxes = result["cards"]
     count_bboxes = result["count_bboxes"]
+    card_subregions = result.get("card_subregions", [])
 
     if not card_bboxes:
         return {"error": "未检测到卡牌"}
@@ -72,28 +120,53 @@ def process_image(image, ocr_runner):
 
     outputs = []
 
-    for i in range(len(cards)):
-        card_img = cards[i]
+    for i, card_img in enumerate(cards):
         count_img = count_rois[i]
+        subregions = card_subregions[i] if i < len(card_subregions) else {}
 
-        # OCR 主体
-        card_texts = ocr_runner.recognize_texts(card_img)
-        card_text = join_ocr_texts(card_texts)
+        full_segments = ocr_runner.recognize_segments(card_img)
+        grouped_segments = split_segments_by_role(full_segments, card_img.shape)
+        full_texts = [segment.text for segment in full_segments]
 
-        # OCR 数量
-        count_texts = ocr_runner.recognize_texts(count_img)
+        title_texts = grouped_segments["title"]
+        if not title_texts and subregions.get("title_bbox") is not None:
+            title_roi = crop_bbox_roi(img, subregions["title_bbox"])
+            title_texts = dedupe_preserve_order(ocr_runner.recognize_texts(title_roi))
+
+        body_texts = grouped_segments["body"]
+        if not body_texts and subregions.get("body_bbox") is not None:
+            body_roi = crop_bbox_roi(img, subregions["body_bbox"])
+            body_texts = dedupe_preserve_order(ocr_runner.recognize_texts(body_roi))
+
+        cost_texts = []
+        if subregions.get("cost_bbox") is not None:
+            cost_roi = crop_bbox_roi(img, subregions["cost_bbox"])
+            cost_texts = dedupe_preserve_order(ocr_runner.recognize_texts(cost_roi))
+        if not cost_texts:
+            cost_texts = grouped_segments["cost"]
+
+        count_texts = dedupe_preserve_order(ocr_runner.recognize_texts(count_img))
         count_text = join_ocr_texts(count_texts)
-
         count = simple_count_parse(count_text)
 
+        raw_texts = dedupe_preserve_order(title_texts + body_texts)
+        if not raw_texts:
+            raw_texts = dedupe_preserve_order(full_texts)
+
         outputs.append({
-            "raw_texts": card_texts,   # 原始 list，后面调试很好用
-            "raw_text": card_text,     # 拼接后的文本
+            "raw_texts": raw_texts,
+            "raw_text": join_ocr_texts(raw_texts),
+            "full_raw_texts": dedupe_preserve_order(full_texts),
+            "full_raw_text": join_ocr_texts(full_texts),
+            "name_raw_texts": title_texts,
+            "name_raw_text": join_ocr_texts(title_texts),
+            "body_raw_texts": body_texts,
+            "body_raw_text": join_ocr_texts(body_texts),
+            "cost_raw_texts": cost_texts,
+            "cost_raw_text": join_ocr_texts(cost_texts),
             "count_raw_texts": count_texts,
             "count_raw_text": count_text,
-            "count": count
+            "count": count,
         })
 
-    return {
-        "cards": outputs
-    }
+    return {"cards": outputs}
