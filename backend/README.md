@@ -16,6 +16,7 @@
 
 - Java 17
 - Spring Boot 4
+- RabbitMQ / Spring AMQP
 - LangChain4j
 - DashScope 兼容 OpenAI API
 - Redis / Redisson
@@ -61,7 +62,7 @@ src/main/java/com/southwestasiafloat/backend
 
 ### 2. 分析链路
 
-`POST /api/arena/analyze` 的主流程如下：
+`POST /api/arena/analyze` 保留同步主流程：
 
 ```mermaid
 flowchart LR
@@ -74,6 +75,27 @@ flowchart LR
     F --> H["KnowledgeBaseService"]
     F --> I["RuleBasedDraftRankingService"]
 ```
+
+现在还新增了异步 OCR 链路：
+
+```mermaid
+flowchart LR
+    A["POST /api/arena/analyze/async"] --> B["Create Analyze Job"]
+    B --> C["Publish OCR Request"]
+    C --> D["RabbitMQ"]
+    D --> E["OCR Worker"]
+    E --> F["Publish OCR Result"]
+    F --> D
+    D --> G["Backend Result Listener"]
+    G --> H["Tool Calling + Rule Ranking"]
+    H --> I["Job Store"]
+    I --> J["Polling / WebSocket"]
+```
+
+前端会先拿到 `jobId`，再通过：
+
+- `GET /api/arena/analyze/jobs/{jobId}` 轮询状态
+- `/ws/arena/analyze/{jobId}` 接收 WebSocket 推送
 
 Agent 会按约定顺序调用工具：
 
@@ -210,6 +232,40 @@ curl -X POST "http://127.0.0.1:8080/api/arena/analyze" \
 }
 ```
 
+### `POST /api/arena/analyze/async`
+
+请求格式同同步接口：`multipart/form-data`
+
+- `file`: 当前竞技场截图
+- `sessionId`: 可选，建议总是传入
+
+返回示例：
+
+```json
+{
+  "jobId": "2e4d3c31-1dc6-48a7-9bd3-8d6619a1a30d",
+  "status": "QUEUED",
+  "message": "OCR job queued."
+}
+```
+
+### `GET /api/arena/analyze/jobs/{jobId}`
+
+返回示例：
+
+```json
+{
+  "jobId": "2e4d3c31-1dc6-48a7-9bd3-8d6619a1a30d",
+  "sessionId": "b5d0d9b4-4e76-4f56-aef7-0c7e0e7f5f5d",
+  "status": "COMPLETED",
+  "errorMessage": null,
+  "result": {
+    "offeredCards": [],
+    "decision": null
+  }
+}
+```
+
 ### `POST /api/arena/pick`
 
 请求示例：
@@ -263,6 +319,26 @@ llm:
 ocr:
   base-url: http://127.0.0.1:18000
   path: /ocr
+```
+
+### RabbitMQ OCR 配置
+
+```yaml
+spring:
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+
+arena:
+  ocr:
+    async:
+      exchange: arena.ocr
+      request-queue: arena.ocr.requests
+      result-queue: arena.ocr.results
+      request-routing-key: ocr.request
+      result-routing-key: ocr.result
 ```
 
 ### Session / Redis 配置

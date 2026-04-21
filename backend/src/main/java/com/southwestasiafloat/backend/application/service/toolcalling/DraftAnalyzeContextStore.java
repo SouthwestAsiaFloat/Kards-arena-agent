@@ -54,6 +54,15 @@ public class DraftAnalyzeContextStore {
         return analysisId;
     }
 
+    public String createContextFromOcrResult(String ocrRawJson) {
+        String analysisId = UUID.randomUUID().toString();
+        AnalysisContext context = new AnalysisContext(null);
+        context.ocrRawJson = ocrRawJson;
+        context.candidates = parseCards(ocrRawJson);
+        contexts.put(analysisId, context);
+        return analysisId;
+    }
+
     public void clearContext(String analysisId) {
         contexts.remove(analysisId);
     }
@@ -63,8 +72,12 @@ public class DraftAnalyzeContextStore {
         if (context.candidates == null) {
             synchronized (context) {
                 if (context.candidates == null) {
-                    context.ocrRawJson = ocrGateway.analyzeImage(context.imageBytes);
-                    context.candidates = parseCards(context.ocrRawJson);
+                    if (context.imageBytes == null) {
+                        context.candidates = parseCards(context.ocrRawJson);
+                    } else {
+                        context.ocrRawJson = ocrGateway.analyzeImage(context.imageBytes);
+                        context.candidates = parseCards(context.ocrRawJson);
+                    }
                 }
             }
         }

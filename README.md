@@ -20,6 +20,7 @@ my-arena-agent/
 - 用 `LangChain4j Tool Calling + 规则排序 + 本地知识库` 输出推荐结果
 - 维护整局 `session`、已选卡池、牌组状态和历史记录
 - 在前端直接确认“这轮最终选了哪张牌”
+- 支持 `RabbitMQ + OCR worker + 前端 WebSocket/轮询` 的异步识别链路
 - 支持可选的 `Redis + Redisson` 会话存储与分布式锁
 - 对重复截图分析做去重缓存，避免重复 OCR / LLM 调用
 
@@ -28,7 +29,10 @@ my-arena-agent/
 ```mermaid
 flowchart LR
     A["Frontend"] --> B["Backend"]
-    B --> C["OCR Service"]
+    B --> H["RabbitMQ"]
+    H --> C["OCR Worker"]
+    C --> H
+    H --> B
     B --> D["LLM"]
     B --> E["Knowledge Base"]
     B --> F["Rule Ranking"]
@@ -49,9 +53,22 @@ flowchart LR
 - Java 17
 - Python 3.10+
 - DashScope 兼容 OpenAI API 的密钥
+- RabbitMQ 3.12+
 - 可选：Redis 7+
 
-### 2. 启动 OCR 服务
+### 2. 启动 RabbitMQ
+
+本项目的前端默认走异步分析链路，后端会把 OCR 任务投递到 RabbitMQ，`ocr-service` worker 消费后再把结果回传给后端。
+
+```powershell
+docker run --rm --name arena-rabbitmq `
+  -p 5672:5672 -p 15672:15672 `
+  rabbitmq:3-management
+```
+
+管理台地址：`http://127.0.0.1:15672`，默认账号密码都是 `guest`。
+
+### 3. 启动 OCR 服务
 
 在 `ocr-service` 目录：
 
@@ -67,7 +84,15 @@ uvicorn app.main:app --host 127.0.0.1 --port 18000
 
 - 当前仓库里的 `requirements.txt` 还是一个最小集合，首次运行还需要额外安装 `rapidfuzz`、`paddleocr` 和匹配版本的 `paddlepaddle`
 
-### 3. 启动后端
+如果要使用异步链路，还需要再开一个终端启动 OCR worker：
+
+```powershell
+cd ocr-service
+.venv\Scripts\activate
+python -m app.worker
+```
+
+### 4. 启动后端
 
 在 `backend` 目录：
 
@@ -84,7 +109,7 @@ $env:SPRING_PROFILES_ACTIVE="redis"
 .\mvnw.cmd spring-boot:run
 ```
 
-### 4. 启动前端
+### 5. 启动前端
 
 在 `frontend` 目录：
 
@@ -100,10 +125,11 @@ npm run dev
 1. 打开前端页面
 2. 自动创建或恢复本地 session
 3. 上传竞技场截图
-4. 后端调用 OCR 服务并生成推荐
-5. 前端展示候选卡、推荐结论、牌组状态和最近历史
-6. 点击某张候选卡，确认本轮真实选择
-7. 后端更新已选卡池、费用曲线和历史记录
+4. 后端创建异步分析任务并投递 OCR 队列
+5. OCR worker 识别完成后回传结果，后端生成推荐
+6. 前端通过 WebSocket / 轮询展示候选卡、推荐结论、牌组状态和最近历史
+7. 点击某张候选卡，确认本轮真实选择
+8. 后端更新已选卡池、费用曲线和历史记录
 
 ## 组件说明
 

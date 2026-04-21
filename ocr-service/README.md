@@ -26,6 +26,7 @@
 - Python 3.10+
 - FastAPI
 - Uvicorn
+- RabbitMQ worker / Pika
 - OpenCV
 - PaddleOCR
 - RapidFuzz
@@ -147,6 +148,23 @@ uvicorn app.main:app --host 127.0.0.1 --port 18000
 服务地址：
 
 - `http://127.0.0.1:18000`
+
+### 5. 启动 RabbitMQ OCR worker
+
+异步链路下，后端不会直接 HTTP 等待 OCR，而是把任务投递到 RabbitMQ。OCR worker 消费任务，识别完成后把结果发回结果队列。
+
+```powershell
+python -m app.worker
+```
+
+默认配置：
+
+```text
+RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
+OCR_MQ_EXCHANGE=arena.ocr
+OCR_REQUEST_QUEUE=arena.ocr.requests
+OCR_RESULT_QUEUE=arena.ocr.results
+```
 
 ## 调试与测试
 

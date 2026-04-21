@@ -8,6 +8,13 @@ ocr:
   path: /ocr
 
 arena:
+  ocr:
+    async:
+      exchange: arena.ocr
+      request-queue: arena.ocr.requests
+      result-queue: arena.ocr.results
+      request-routing-key: ocr.request
+      result-routing-key: ocr.result
   session:
     store-type: in-memory
     ttl: PT12H
@@ -26,6 +33,11 @@ arena:
     lock-watchdog-timeout: PT30S
 
 spring:
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
   servlet:
     multipart:
       max-file-size: 20MB

@@ -16,7 +16,8 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties({
         ArenaRedisProperties.class,
         ArenaSessionProperties.class,
-        ArenaAnalysisProperties.class
+        ArenaAnalysisProperties.class,
+        ArenaOcrAsyncProperties.class
 })
 public class ArenaConfig {
 

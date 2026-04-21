@@ -5,3 +5,4 @@ pytest
 numpy
 opencv-python
 requests
+pika

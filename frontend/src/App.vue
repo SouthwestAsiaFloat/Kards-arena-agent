@@ -82,6 +82,14 @@
             show-icon
             :closable="false"
           />
+          <el-alert
+            v-if="activeAnalyzeJobId"
+            class="panel-alert"
+            :title="`识别任务已提交：${activeAnalyzeJobId}`"
+            type="info"
+            show-icon
+            :closable="false"
+          />
         </el-card>
 
         <el-row :gutter="18" class="content-row">
@@ -301,7 +309,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { MagicStick, UploadFilled } from '@element-plus/icons-vue'
 
@@ -317,6 +325,11 @@ const decision = ref(null)
 const history = ref([])
 const sessionId = ref('')
 const sessionData = ref(null)
+const activeAnalyzeJobId = ref('')
+
+let analyzePollTimer = null
+let analyzeSocket = null
+let analyzeJobSettled = false
 
 const latestHistoryEntry = computed(() => {
   const currentHistory = sessionData.value?.history
@@ -465,6 +478,10 @@ onMounted(async () => {
     const message = error instanceof Error ? error.message : '初始化会话失败'
     errorMessage.value = message
   }
+})
+
+onBeforeUnmount(() => {
+  clearAnalyzeWatchers()
 })
 
 function handleFileChange(uploadFile) {
@@ -629,7 +646,7 @@ async function analyzeScreenshot() {
     formData.append('file', selectedFile.value)
     formData.append('sessionId', currentSessionId)
 
-    const response = await fetch('/api/arena/analyze', {
+    const response = await fetch('/api/arena/analyze/async', {
       method: 'POST',
       body: formData
     })
@@ -639,19 +656,119 @@ async function analyzeScreenshot() {
     }
 
     const result = await response.json()
-    cards.value = Array.isArray(result.offeredCards) ? result.offeredCards : []
-    decision.value = result.decision ?? null
+    if (!result.jobId) {
+      throw new Error('后端没有返回有效的识别任务 ID')
+    }
 
-    await loadSessionData()
-    ElMessage.success('识别完成，现在可以在候选卡中确认本轮实际选择。')
+    startAnalyzeWatchers(result.jobId)
+    ElMessage.info('识别任务已提交，正在等待 OCR-Service 返回结果。')
   } catch (error) {
     console.error(error)
     const message = error instanceof Error ? error.message : '识别失败，请检查后端和 OCR 服务是否已启动。'
     errorMessage.value = message
     ElMessage.error(message)
-  } finally {
     loading.value = false
+    clearAnalyzeWatchers()
   }
+}
+
+function startAnalyzeWatchers(jobId) {
+  clearAnalyzeWatchers()
+  activeAnalyzeJobId.value = jobId
+  analyzeJobSettled = false
+  connectAnalyzeWebSocket(jobId)
+  startAnalyzePolling(jobId)
+}
+
+function clearAnalyzeWatchers() {
+  activeAnalyzeJobId.value = ''
+
+  if (analyzePollTimer) {
+    window.clearInterval(analyzePollTimer)
+    analyzePollTimer = null
+  }
+
+  if (analyzeSocket) {
+    analyzeSocket.close()
+    analyzeSocket = null
+  }
+}
+
+function connectAnalyzeWebSocket(jobId) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${protocol}//${window.location.host}/ws/arena/analyze/${jobId}`
+  const socket = new WebSocket(wsUrl)
+  analyzeSocket = socket
+
+  socket.onmessage = (event) => {
+    try {
+      applyAnalyzeJobUpdate(JSON.parse(event.data))
+    } catch (error) {
+      console.warn('Invalid analyze websocket payload', error)
+    }
+  }
+
+  socket.onerror = () => {
+    console.warn('Analyze websocket failed, polling will continue.')
+  }
+
+  socket.onclose = () => {
+    if (analyzeSocket === socket) {
+      analyzeSocket = null
+    }
+  }
+}
+
+function startAnalyzePolling(jobId) {
+  pollAnalyzeJob(jobId)
+  analyzePollTimer = window.setInterval(() => {
+    pollAnalyzeJob(jobId)
+  }, 1200)
+}
+
+async function pollAnalyzeJob(jobId) {
+  if (analyzeJobSettled || activeAnalyzeJobId.value !== jobId) {
+    return
+  }
+
+  try {
+    const response = await fetch(`/api/arena/analyze/jobs/${jobId}`)
+    if (!response.ok) {
+      throw new Error(`查询识别任务失败，状态码 ${response.status}`)
+    }
+    const result = await response.json()
+    await applyAnalyzeJobUpdate(result)
+  } catch (error) {
+    console.warn(error)
+  }
+}
+
+async function applyAnalyzeJobUpdate(job) {
+  if (!job || job.jobId !== activeAnalyzeJobId.value || analyzeJobSettled) {
+    return
+  }
+
+  if (job.status === 'QUEUED' || job.status === 'ANALYZING') {
+    return
+  }
+
+  analyzeJobSettled = true
+  clearAnalyzeWatchers()
+  activeAnalyzeJobId.value = ''
+  loading.value = false
+
+  if (job.status === 'COMPLETED') {
+    const result = job.result ?? {}
+    cards.value = Array.isArray(result.offeredCards) ? result.offeredCards : []
+    decision.value = result.decision ?? null
+    await loadSessionData()
+    ElMessage.success('识别完成，现在可以在候选卡中确认本轮实际选择。')
+    return
+  }
+
+  const message = job.errorMessage || '识别任务失败，请检查 RabbitMQ、后端和 OCR worker。'
+  errorMessage.value = message
+  ElMessage.error(message)
 }
 
 async function pickCandidate(card) {

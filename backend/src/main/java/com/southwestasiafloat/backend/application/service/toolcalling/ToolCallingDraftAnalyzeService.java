@@ -41,9 +41,7 @@ public class ToolCallingDraftAnalyzeService {
         String analysisId = contextStore.createContext(imageBytes);
 
         try {
-            String agentResponse = analyzeAgent.analyze(analysisId, effectiveSessionId);
-            ToolCallingDraftAnalysisPayload payload = parseAgentPayload(agentResponse);
-            return buildResult(analysisId, effectiveSessionId, payload);
+            return analyzeContext(analysisId, effectiveSessionId);
         } catch (Exception ex) {
             log.warn("Tool-calling analyze failed, falling back to rule-based ranking", ex);
             return buildFallbackResult(analysisId, effectiveSessionId,
@@ -51,6 +49,27 @@ public class ToolCallingDraftAnalyzeService {
         } finally {
             contextStore.clearContext(analysisId);
         }
+    }
+
+    public ToolCallingDraftAnalysisResult analyzeOcrResult(String ocrRawJson, String sessionId) {
+        String effectiveSessionId = normalizeSessionId(sessionId);
+        String analysisId = contextStore.createContextFromOcrResult(ocrRawJson);
+
+        try {
+            return analyzeContext(analysisId, effectiveSessionId);
+        } catch (Exception ex) {
+            log.warn("Tool-calling analyze failed after async OCR, falling back to rule-based ranking", ex);
+            return buildFallbackResult(analysisId, effectiveSessionId,
+                    "Tool calling failed after async OCR, fallback to rule-based ranking: " + ex.getMessage());
+        } finally {
+            contextStore.clearContext(analysisId);
+        }
+    }
+
+    private ToolCallingDraftAnalysisResult analyzeContext(String analysisId, String effectiveSessionId) {
+        String agentResponse = analyzeAgent.analyze(analysisId, effectiveSessionId);
+        ToolCallingDraftAnalysisPayload payload = parseAgentPayload(agentResponse);
+        return buildResult(analysisId, effectiveSessionId, payload);
     }
 
     private ToolCallingDraftAnalysisResult buildResult(String analysisId,

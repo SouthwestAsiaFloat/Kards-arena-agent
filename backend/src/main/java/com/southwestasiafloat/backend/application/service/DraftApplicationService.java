@@ -59,7 +59,7 @@ public class DraftApplicationService {
     private DraftAnalyzeResponse analyzeLocked(byte[] imageBytes, String sessionId) {
         String cacheKey = buildAnalyzeCacheKey(sessionId, imageBytes);
 
-        Optional<DraftAnalyzeResponse> cached = analyzeResultCache.get(cacheKey);
+        Optional<DraftAnalyzeResponse> cached = findCachedAnalyzeResult(cacheKey);
         if (cached.isPresent()) {
             log.info("Reused cached analyze result for key={}", cacheKey);
             return cached.get();
@@ -70,7 +70,7 @@ public class DraftApplicationService {
 
     private DraftAnalyzeResponse analyzeWithDedup(String cacheKey, byte[] imageBytes, String sessionId) {
         return analyzeRequestLockManager.withAnalyzeLock(cacheKey, () -> {
-            Optional<DraftAnalyzeResponse> cached = analyzeResultCache.get(cacheKey);
+            Optional<DraftAnalyzeResponse> cached = findCachedAnalyzeResult(cacheKey);
             if (cached.isPresent()) {
                 log.info("Reused cached analyze result after waiting for key={}", cacheKey);
                 return cached.get();
@@ -88,7 +88,41 @@ public class DraftApplicationService {
         });
     }
 
-    private String buildAnalyzeCacheKey(String sessionId, byte[] imageBytes) {
+    public Optional<DraftAnalyzeResponse> findCachedAnalyzeResult(String cacheKey) {
+        return analyzeResultCache.get(cacheKey);
+    }
+
+    public DraftAnalyzeResponse analyzeOcrResult(String ocrRawJson, String sessionId, String cacheKey) {
+        if (cacheKey == null || cacheKey.isBlank()) {
+            return analyzeOcrResultUncached(ocrRawJson, sessionId, null);
+        }
+
+        return analyzeRequestLockManager.withAnalyzeLock(cacheKey, () -> {
+            Optional<DraftAnalyzeResponse> cached = findCachedAnalyzeResult(cacheKey);
+            if (cached.isPresent()) {
+                log.info("Reused cached async analyze result for key={}", cacheKey);
+                return cached.get();
+            }
+
+            return analyzeOcrResultUncached(ocrRawJson, sessionId, cacheKey);
+        });
+    }
+
+    private DraftAnalyzeResponse analyzeOcrResultUncached(String ocrRawJson, String sessionId, String cacheKey) {
+        ToolCallingDraftAnalysisResult analysisResult =
+                toolCallingDraftAnalyzeService.analyzeOcrResult(ocrRawJson, sessionId);
+
+        DraftAnalyzeResponse response =
+                new DraftAnalyzeResponse(analysisResult.offeredCards(), analysisResult.decision());
+
+        saveAnalyzeHistory(sessionId, analysisResult.offeredCards(), analysisResult.decision());
+        if (cacheKey != null && !cacheKey.isBlank()) {
+            analyzeResultCache.put(cacheKey, response);
+        }
+        return response;
+    }
+
+    public String buildAnalyzeCacheKey(String sessionId, byte[] imageBytes) {
         String sessionKey = normalizeSessionKey(sessionId);
         int pickNo = resolveCurrentPickNo(sessionId);
         return sessionKey + ":" + pickNo + ":" + sha256Hex(imageBytes);
