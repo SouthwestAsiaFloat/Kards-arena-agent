@@ -61,10 +61,10 @@ flowchart LR
 
 本项目的前端默认走异步分析链路，后端会把 OCR 任务投递到 RabbitMQ，`ocr-service` worker 消费后再把结果回传给后端。
 
-推荐直接启动 RabbitMQ 和 Redis：
+推荐直接启动 RabbitMQ、Redis 和 Prometheus：
 
 ```powershell
-docker compose up -d rabbitmq redis
+docker compose up -d rabbitmq redis prometheus
 ```
 
 也可以只启动 RabbitMQ：
@@ -76,6 +76,8 @@ docker run --rm --name arena-rabbitmq `
 ```
 
 管理台地址：`http://127.0.0.1:15672`，默认账号密码都是 `guest`。
+
+Prometheus 地址：`http://127.0.0.1:9090`。默认会抓取本机后端的 `http://host.docker.internal:8080/actuator/prometheus`。
 
 ### 3. 启动 OCR 服务
 
@@ -200,6 +202,7 @@ python -m app.worker
 - 可恢复异常会进入 RabbitMQ retry queue，延迟后再回到请求队列；缺失 jobId 等坏请求会进入 dead queue。
 - LLM 并发保护、超时、重试和熔断用于防止外部模型接口被瞬间打满；拿不到许可或熔断打开时会触发已有的规则排序兜底。
 - 后端暴露 Actuator 指标，默认可看 `/actuator/health`、`/actuator/metrics` 和 `/actuator/prometheus`。
+- `docker compose up -d prometheus` 会启动 Prometheus 并采集后端指标。
 - Redis 模式下，WebSocket job 更新会通过 Redis Pub/Sub 广播，支持多后端实例；前端轮询仍然是兜底。
 
 ## 典型使用流程

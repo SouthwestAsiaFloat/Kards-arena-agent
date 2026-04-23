@@ -423,6 +423,20 @@ management:
 - `GET /actuator/metrics`
 - `GET /actuator/prometheus`
 
+如果使用仓库根目录的 `docker-compose.yml`：
+
+```powershell
+docker compose up -d prometheus
+```
+
+Prometheus 控制台地址：
+
+- `http://127.0.0.1:9090`
+
+默认 scrape 配置在 `observability/prometheus.yml`，会采集：
+
+- `http://host.docker.internal:8080/actuator/prometheus`
+
 当前自定义指标包括：
 
 - `arena.analyze.jobs.submitted`
