@@ -23,6 +23,7 @@ my-arena-agent/
 - 支持 `RabbitMQ + OCR worker + 前端 WebSocket/轮询` 的异步识别链路
 - 支持可选的 `Redis + Redisson` 会话存储与分布式锁
 - 对重复截图分析做去重缓存，避免重复 OCR / LLM 调用
+- 支持 OCR worker 失败重试、后端结果监听并发和 LLM 并发保护，适合逐步提升吞吐
 
 ## 架构概览
 
@@ -60,6 +61,14 @@ flowchart LR
 
 本项目的前端默认走异步分析链路，后端会把 OCR 任务投递到 RabbitMQ，`ocr-service` worker 消费后再把结果回传给后端。
 
+推荐直接启动 RabbitMQ 和 Redis：
+
+```powershell
+docker compose up -d rabbitmq redis
+```
+
+也可以只启动 RabbitMQ：
+
 ```powershell
 docker run --rm --name arena-rabbitmq `
   -p 5672:5672 -p 15672:15672 `
@@ -92,6 +101,16 @@ cd ocr-service
 python -m app.worker
 ```
 
+如果 OCR 是瓶颈，可以多开几个 worker 进程，RabbitMQ 会自动把任务分发给空闲 worker：
+
+```powershell
+cd ocr-service
+.venv\Scripts\activate
+python -m app.worker
+```
+
+默认每个 worker 一次只处理 1 个 OCR 任务，这样更稳，也能避免 PaddleOCR 在单进程内争抢资源。
+
 ### 4. 启动后端
 
 在 `backend` 目录：
@@ -119,6 +138,69 @@ npm run dev
 ```
 
 前端开发服务器会把 `/api/*` 代理到 `http://127.0.0.1:8080`。
+
+## 容灾与高并发建议
+
+这套项目当前更推荐用“异步队列 + 多 worker + Redis 状态外置”的方式提升吞吐，而不是在单个服务里盲目加线程池。
+
+### 推荐运行模式
+
+本地开发可以用默认 `in-memory` 模式；如果要模拟更接近生产的容灾能力，建议启用 Redis：
+
+```powershell
+$env:DASHSCOPE_API_KEY="your_api_key"
+$env:SPRING_PROFILES_ACTIVE="redis"
+.\mvnw.cmd spring-boot:run
+```
+
+启用 Redis 后，后端会把 session、分析去重缓存、分布式锁和异步 job 状态放到 Redis / Redisson 上，后端重启后仍能查询已保存的 job 状态。
+
+### 并发扩容顺序
+
+1. 优先多开 `python -m app.worker`，提升 OCR 吞吐。
+2. 再根据机器资源调大后端 OCR 结果监听并发：`arena.ocr.async.result-listener-concurrency`。
+3. 如果 LLM 接口开始限流或变慢，调小 `arena.analysis.max-concurrent-llm-calls`，让系统主动排队或走规则兜底。
+4. 前端优先使用 `/api/arena/analyze/async`，避免大量同步请求长期占用 HTTP 线程。
+
+### 关键配置
+
+```yaml
+arena:
+  ocr:
+    async:
+      result-listener-concurrency: 2-8
+      job-redis-map-name: arena:ocr:jobs
+      job-ttl: PT2H
+      job-recover-after: PT10M
+      job-recovery-fixed-delay: PT1M
+      job-update-topic-name: arena:ocr:job-updates
+  analysis:
+    max-concurrent-llm-calls: 4
+    llm-permit-timeout: PT20S
+    llm-timeout: PT60S
+    llm-max-retries: 1
+    llm-circuit-breaker-failure-threshold: 5
+    llm-circuit-breaker-open-duration: PT30S
+    max-upload-size: 20MB
+    max-active-jobs: 100
+    max-active-jobs-per-session: 2
+```
+
+OCR worker 也支持环境变量调节失败重试：
+
+```powershell
+$env:OCR_WORKER_MAX_RETRIES="2"
+$env:OCR_WORKER_RETRY_DELAY_SECONDS="2"
+python -m app.worker
+```
+
+说明：
+
+- OCR worker 只有在结果成功发布到 RabbitMQ 后才确认原任务，避免“任务被确认但结果没发回”的消息丢失。
+- 可恢复异常会进入 RabbitMQ retry queue，延迟后再回到请求队列；缺失 jobId 等坏请求会进入 dead queue。
+- LLM 并发保护、超时、重试和熔断用于防止外部模型接口被瞬间打满；拿不到许可或熔断打开时会触发已有的规则排序兜底。
+- 后端暴露 Actuator 指标，默认可看 `/actuator/health`、`/actuator/metrics` 和 `/actuator/prometheus`。
+- Redis 模式下，WebSocket job 更新会通过 Redis Pub/Sub 广播，支持多后端实例；前端轮询仍然是兜底。
 
 ## 典型使用流程
 

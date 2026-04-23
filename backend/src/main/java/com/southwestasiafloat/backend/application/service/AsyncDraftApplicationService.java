@@ -5,6 +5,8 @@ import com.southwestasiafloat.backend.dto.response.DraftAnalyzeJobSubmitResponse
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
 import com.southwestasiafloat.backend.infrastructure.mq.OcrJobPublisher;
 import com.southwestasiafloat.backend.infrastructure.mq.OcrJobResultMessage;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -19,18 +21,26 @@ public class AsyncDraftApplicationService {
     private final AnalyzeJobStore analyzeJobStore;
     private final OcrJobPublisher ocrJobPublisher;
     private final AnalyzeJobUpdateNotifier analyzeJobUpdateNotifier;
+    private final AnalysisRequestGuard analysisRequestGuard;
+    private final MeterRegistry meterRegistry;
 
     public AsyncDraftApplicationService(DraftApplicationService draftApplicationService,
                                         AnalyzeJobStore analyzeJobStore,
                                         OcrJobPublisher ocrJobPublisher,
-                                        AnalyzeJobUpdateNotifier analyzeJobUpdateNotifier) {
+                                        AnalyzeJobUpdateNotifier analyzeJobUpdateNotifier,
+                                        AnalysisRequestGuard analysisRequestGuard,
+                                        MeterRegistry meterRegistry) {
         this.draftApplicationService = draftApplicationService;
         this.analyzeJobStore = analyzeJobStore;
         this.ocrJobPublisher = ocrJobPublisher;
         this.analyzeJobUpdateNotifier = analyzeJobUpdateNotifier;
+        this.analysisRequestGuard = analysisRequestGuard;
+        this.meterRegistry = meterRegistry;
     }
 
     public DraftAnalyzeJobSubmitResponse submitAnalyzeJob(MultipartFile file, String sessionId) throws Exception {
+        analysisRequestGuard.validateUpload(file);
+        analysisRequestGuard.ensureAsyncCapacity(sessionId);
         byte[] imageBytes = file.getBytes();
         String cacheKey = draftApplicationService.buildAnalyzeCacheKey(sessionId, imageBytes);
 
@@ -55,6 +65,7 @@ public class AsyncDraftApplicationService {
                     resolveFilename(file),
                     imageBytes
             );
+            meterRegistry.counter("arena.analyze.jobs.submitted").increment();
             return new DraftAnalyzeJobSubmitResponse(
                     job.getJobId(),
                     job.getStatus().name(),
@@ -62,6 +73,8 @@ public class AsyncDraftApplicationService {
             );
         } catch (Exception ex) {
             job.markFailed("Failed to publish OCR job: " + ex.getMessage());
+            analyzeJobStore.save(job);
+            meterRegistry.counter("arena.analyze.jobs.failed", "stage", "publish").increment();
             analyzeJobUpdateNotifier.notifyJob(job);
             throw ex;
         }
@@ -72,43 +85,67 @@ public class AsyncDraftApplicationService {
     }
 
     public void handleOcrResult(OcrJobResultMessage message) {
-        Optional<AsyncDraftAnalyzeJob> jobOptional = analyzeJobStore.findById(message.getJobId());
-        if (jobOptional.isEmpty()) {
-            log.warn("Ignored OCR result for unknown jobId={}", message.getJobId());
-            return;
-        }
-
-        AsyncDraftAnalyzeJob job = jobOptional.get();
-
-        if (!message.isSuccess()) {
-            job.markFailed(resolveError(message.getErrorMessage()));
-            analyzeJobUpdateNotifier.notifyJob(job);
-            return;
-        }
-
-        if (message.getResultJson() == null || message.getResultJson().isBlank()) {
-            job.markFailed("OCR worker returned an empty result.");
-            analyzeJobUpdateNotifier.notifyJob(job);
-            return;
-        }
-
-        job.markAnalyzing();
-        analyzeJobUpdateNotifier.notifyJob(job);
-
+        Timer.Sample sample = Timer.start(meterRegistry);
         try {
-            DraftAnalyzeResponse response = draftApplicationService.analyzeOcrResult(
-                    message.getResultJson(),
-                    job.getSessionId(),
-                    job.getCacheKey()
-            );
-            job.markCompleted(response);
-            log.info("Async analyze job {} completed", job.getJobId());
-        } catch (Exception ex) {
-            log.warn("Async analyze job {} failed after OCR completed", job.getJobId(), ex);
-            job.markFailed("Analyze failed after OCR completed: " + ex.getMessage());
-        }
+            Optional<AsyncDraftAnalyzeJob> jobOptional = analyzeJobStore.findById(message.getJobId());
+            if (jobOptional.isEmpty()) {
+                log.warn("Ignored OCR result for unknown jobId={}", message.getJobId());
+                meterRegistry.counter("arena.ocr.results.ignored", "reason", "unknown-job").increment();
+                return;
+            }
 
-        analyzeJobUpdateNotifier.notifyJob(job);
+            AsyncDraftAnalyzeJob job = jobOptional.get();
+            if (isTerminal(job)) {
+                log.info("Ignored duplicate OCR result for terminal jobId={} status={}", job.getJobId(), job.getStatus());
+                meterRegistry.counter("arena.ocr.results.ignored", "reason", "terminal-job").increment();
+                return;
+            }
+
+            if (!message.isSuccess()) {
+                job.markFailed(resolveError(message.getErrorMessage()));
+                analyzeJobStore.save(job);
+                meterRegistry.counter("arena.analyze.jobs.failed", "stage", "ocr").increment();
+                analyzeJobUpdateNotifier.notifyJob(job);
+                return;
+            }
+
+            if (message.getResultJson() == null || message.getResultJson().isBlank()) {
+                job.markFailed("OCR worker returned an empty result.");
+                analyzeJobStore.save(job);
+                meterRegistry.counter("arena.analyze.jobs.failed", "stage", "ocr-empty").increment();
+                analyzeJobUpdateNotifier.notifyJob(job);
+                return;
+            }
+
+            job.markAnalyzing();
+            analyzeJobStore.save(job);
+            analyzeJobUpdateNotifier.notifyJob(job);
+
+            try {
+                DraftAnalyzeResponse response = draftApplicationService.analyzeOcrResult(
+                        message.getResultJson(),
+                        job.getSessionId(),
+                        job.getCacheKey()
+                );
+                job.markCompleted(response);
+                meterRegistry.counter("arena.analyze.jobs.completed").increment();
+                log.info("Async analyze job {} completed", job.getJobId());
+            } catch (Exception ex) {
+                log.warn("Async analyze job {} failed after OCR completed", job.getJobId(), ex);
+                job.markFailed("Analyze failed after OCR completed: " + ex.getMessage());
+                meterRegistry.counter("arena.analyze.jobs.failed", "stage", "analysis").increment();
+            }
+
+            analyzeJobStore.save(job);
+            analyzeJobUpdateNotifier.notifyJob(job);
+        } finally {
+            sample.stop(meterRegistry.timer("arena.analyze.jobs.handle_ocr_result"));
+        }
+    }
+
+    private boolean isTerminal(AsyncDraftAnalyzeJob job) {
+        return job.getStatus() == AnalyzeJobStatus.COMPLETED
+                || job.getStatus() == AnalyzeJobStatus.FAILED;
     }
 
     private String resolveFilename(MultipartFile file) {

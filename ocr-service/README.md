@@ -163,7 +163,46 @@ python -m app.worker
 RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672/%2F
 OCR_MQ_EXCHANGE=arena.ocr
 OCR_REQUEST_QUEUE=arena.ocr.requests
+OCR_RETRY_QUEUE=arena.ocr.requests.retry
+OCR_DEAD_QUEUE=arena.ocr.requests.dead
 OCR_RESULT_QUEUE=arena.ocr.results
+OCR_REQUEST_ROUTING_KEY=ocr.request
+OCR_RETRY_ROUTING_KEY=ocr.request.retry
+OCR_DEAD_ROUTING_KEY=ocr.request.dead
+OCR_RESULT_ROUTING_KEY=ocr.result
+OCR_WORKER_MAX_RETRIES=2
+OCR_WORKER_RETRY_DELAY_SECONDS=2
+```
+
+### 6. Worker 并发与重试
+
+当前 worker 使用 `prefetch_count=1`，也就是单个 worker 进程一次只处理一个 OCR 任务。这样做是为了让 PaddleOCR 资源占用更可控。
+
+如果要提升吞吐，推荐横向多开 worker 进程，而不是在同一个 Python 进程里加线程池：
+
+```powershell
+python -m app.worker
+python -m app.worker
+python -m app.worker
+```
+
+RabbitMQ 会自动把请求队列里的任务分发给空闲 worker。
+
+worker 的消息确认策略：
+
+- OCR 成功并且结果成功发布到结果队列后，才会 `ack` 原始请求。
+- 如果结果发布失败，会 `nack` 并重新入队，避免请求消息丢失。
+- 可恢复异常会发布到 retry queue，等待 `OCR_WORKER_RETRY_DELAY_SECONDS` 后再回到请求队列。
+- 超过 `OCR_WORKER_MAX_RETRIES` 后会把失败结果发给后端。
+- 缺少 `jobId` 等无法关联后端 job 的坏消息会进入 dead queue。
+- 图片无法解码等可关联 job 的坏请求不会反复重试，会直接返回失败结果给后端。
+
+可以用环境变量调整重试行为：
+
+```powershell
+$env:OCR_WORKER_MAX_RETRIES="3"
+$env:OCR_WORKER_RETRY_DELAY_SECONDS="1"
+python -m app.worker
 ```
 
 ## 调试与测试

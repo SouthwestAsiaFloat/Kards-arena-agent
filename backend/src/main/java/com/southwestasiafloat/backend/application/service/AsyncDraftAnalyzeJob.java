@@ -1,19 +1,27 @@
 package com.southwestasiafloat.backend.application.service;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
 
 import java.time.Instant;
 
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class AsyncDraftAnalyzeJob {
 
-    private final String jobId;
-    private final String sessionId;
-    private final String cacheKey;
-    private final Instant createdAt;
+    private String jobId;
+    private String sessionId;
+    private String cacheKey;
+    private Instant createdAt;
     private volatile Instant updatedAt;
     private volatile AnalyzeJobStatus status;
     private volatile DraftAnalyzeResponse result;
     private volatile String errorMessage;
+
+    public AsyncDraftAnalyzeJob() {
+        // For JSON deserialization when job state is stored outside the JVM.
+    }
 
     public AsyncDraftAnalyzeJob(String jobId, String sessionId, String cacheKey, AnalyzeJobStatus status) {
         this.jobId = jobId;

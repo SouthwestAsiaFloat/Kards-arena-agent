@@ -4,16 +4,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.application.service.toolcalling.model.RuleRankingResult;
 import com.southwestasiafloat.backend.application.service.toolcalling.model.ToolCallingDraftAnalysisPayload;
 import com.southwestasiafloat.backend.application.service.toolcalling.model.ToolCallingDraftAnalysisResult;
+import com.southwestasiafloat.backend.config.ArenaAnalysisProperties;
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.CardEvaluationResult;
 import com.southwestasiafloat.backend.domain.model.FinalDecision;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.service.AiServices;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -22,13 +30,27 @@ public class ToolCallingDraftAnalyzeService {
     private final DraftAnalyzeContextStore contextStore;
     private final ObjectMapper objectMapper;
     private final DraftAnalyzeAgent analyzeAgent;
+    private final Semaphore llmSemaphore;
+    private final Duration llmPermitTimeout;
+    private final int circuitBreakerFailureThreshold;
+    private final Duration circuitBreakerOpenDuration;
+    private final MeterRegistry meterRegistry;
+    private final AtomicInteger consecutiveLlmFailures = new AtomicInteger();
+    private volatile Instant circuitOpenUntil = Instant.EPOCH;
 
     public ToolCallingDraftAnalyzeService(OpenAiChatModel chatModel,
                                           DraftAnalyzeToolbox toolbox,
                                           DraftAnalyzeContextStore contextStore,
-                                          ObjectMapper objectMapper) {
+                                          ObjectMapper objectMapper,
+                                          ArenaAnalysisProperties analysisProperties,
+                                          MeterRegistry meterRegistry) {
         this.contextStore = contextStore;
         this.objectMapper = objectMapper;
+        this.llmSemaphore = new Semaphore(Math.max(1, analysisProperties.getMaxConcurrentLlmCalls()));
+        this.llmPermitTimeout = analysisProperties.getLlmPermitTimeout();
+        this.circuitBreakerFailureThreshold = Math.max(1, analysisProperties.getLlmCircuitBreakerFailureThreshold());
+        this.circuitBreakerOpenDuration = analysisProperties.getLlmCircuitBreakerOpenDuration();
+        this.meterRegistry = meterRegistry;
         this.analyzeAgent = AiServices.builder(DraftAnalyzeAgent.class)
                 .chatModel(chatModel)
                 .tools(toolbox)
@@ -67,9 +89,66 @@ public class ToolCallingDraftAnalyzeService {
     }
 
     private ToolCallingDraftAnalysisResult analyzeContext(String analysisId, String effectiveSessionId) {
-        String agentResponse = analyzeAgent.analyze(analysisId, effectiveSessionId);
-        ToolCallingDraftAnalysisPayload payload = parseAgentPayload(agentResponse);
-        return buildResult(analysisId, effectiveSessionId, payload);
+        rejectIfCircuitOpen();
+        boolean acquired = acquireLlmPermit();
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            String agentResponse = analyzeAgent.analyze(analysisId, effectiveSessionId);
+            ToolCallingDraftAnalysisPayload payload = parseAgentPayload(agentResponse);
+            recordLlmSuccess();
+            return buildResult(analysisId, effectiveSessionId, payload);
+        } catch (RuntimeException ex) {
+            recordLlmFailure();
+            throw ex;
+        } finally {
+            if (acquired) {
+                llmSemaphore.release();
+            }
+            sample.stop(meterRegistry.timer("arena.llm.tool_calling.duration"));
+        }
+    }
+
+    private boolean acquireLlmPermit() {
+        long timeoutMillis = llmPermitTimeout != null
+                ? Math.max(0, llmPermitTimeout.toMillis())
+                : 0;
+        try {
+            boolean acquired = llmSemaphore.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
+            if (!acquired) {
+                throw new IllegalStateException("LLM concurrency limit reached");
+            }
+            return true;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting for LLM concurrency permit", ex);
+        }
+    }
+
+    private void rejectIfCircuitOpen() {
+        if (Instant.now().isBefore(circuitOpenUntil)) {
+            meterRegistry.counter("arena.llm.circuit.open").increment();
+            throw new IllegalStateException("LLM circuit breaker is open until " + circuitOpenUntil);
+        }
+    }
+
+    private void recordLlmSuccess() {
+        consecutiveLlmFailures.set(0);
+        circuitOpenUntil = Instant.EPOCH;
+        meterRegistry.counter("arena.llm.calls", "result", "success").increment();
+    }
+
+    private void recordLlmFailure() {
+        int failures = consecutiveLlmFailures.incrementAndGet();
+        meterRegistry.counter("arena.llm.calls", "result", "failure").increment();
+        if (failures >= circuitBreakerFailureThreshold) {
+            Duration openDuration = circuitBreakerOpenDuration != null
+                    ? circuitBreakerOpenDuration
+                    : Duration.ofSeconds(30);
+            circuitOpenUntil = Instant.now().plus(openDuration);
+            meterRegistry.counter("arena.llm.circuit.tripped").increment();
+            log.warn("LLM circuit breaker opened for {} after {} consecutive failures",
+                    openDuration, failures);
+        }
     }
 
     private ToolCallingDraftAnalysisResult buildResult(String analysisId,
@@ -101,6 +180,7 @@ public class ToolCallingDraftAnalyzeService {
     private ToolCallingDraftAnalysisResult buildFallbackResult(String analysisId,
                                                                String sessionId,
                                                                String fallbackReason) {
+        meterRegistry.counter("arena.analyze.fallbacks").increment();
         List<Card> offeredCards = contextStore.getCandidates(analysisId);
         RuleRankingResult rankingResult = contextStore.getRuleRanking(analysisId, sessionId);
         CardEvaluationResult recommendedEvaluation = contextStore.findEvaluation(analysisId, rankingResult.topCardName());

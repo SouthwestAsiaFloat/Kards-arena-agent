@@ -12,9 +12,20 @@ arena:
     async:
       exchange: arena.ocr
       request-queue: arena.ocr.requests
+      retry-queue: arena.ocr.requests.retry
+      dead-queue: arena.ocr.requests.dead
       result-queue: arena.ocr.results
       request-routing-key: ocr.request
+      retry-routing-key: ocr.request.retry
+      dead-routing-key: ocr.request.dead
       result-routing-key: ocr.result
+      retry-delay: PT2S
+      result-listener-concurrency: 2-8
+      job-redis-map-name: arena:ocr:jobs
+      job-ttl: PT2H
+      job-recover-after: PT10M
+      job-recovery-fixed-delay: PT1M
+      job-update-topic-name: arena:ocr:job-updates
   session:
     store-type: in-memory
     ttl: PT12H
@@ -24,6 +35,15 @@ arena:
     cache-ttl: PT10M
     redis-map-name: arena:draft:analysis-cache
     lock-key-prefix: arena:draft:locks:analyze
+    max-concurrent-llm-calls: 4
+    llm-permit-timeout: PT20S
+    llm-timeout: PT60S
+    llm-max-retries: 1
+    llm-circuit-breaker-failure-threshold: 5
+    llm-circuit-breaker-open-duration: PT30S
+    max-upload-size: 20MB
+    max-active-jobs: 100
+    max-active-jobs-per-session: 2
   redis:
     address: redis://127.0.0.1:6379
     database: 0
@@ -31,6 +51,16 @@ arena:
     connect-timeout: PT10S
     timeout: PT3S
     lock-watchdog-timeout: PT30S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
 
 spring:
   rabbitmq:

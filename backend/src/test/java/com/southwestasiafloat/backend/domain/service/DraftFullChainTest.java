@@ -42,7 +42,7 @@ class DraftFullChainTest {
         llmClient = Mockito.mock(LangChain4jLlmClient.class);
 
         synergyAnalyzer = new SynergyAnalyzer(llmGateway, objectMapper);
-        draftDecisionService = new DraftDecisionService(llmClient);
+        draftDecisionService = new DraftDecisionService(llmClient, objectMapper);
     }
 
     @Test
@@ -74,7 +74,7 @@ class DraftFullChainTest {
         // =========================
         // 2. 模拟当前已抓卡组（给 SynergyAnalyzer 用）
         // =========================
-        DraftSession session = new DraftSession(sessionId);
+        DraftSession session = new DraftSession("test-session");
         List<Card> pickedCards = new ArrayList<>();
 
         Card picked1 = new Card();
@@ -156,8 +156,10 @@ class DraftFullChainTest {
         // =========================
         Mockito.when(llmClient.analyzeDraft(anyString()))
                 .thenReturn("""
-                        推荐卡：USS 约克城号
-                        理由：这张卡的竞技场基础分最高，同时数量为2，稳定性更强；并且它与当前卡组的中期节奏和已有单位体系协同性最好，因此是本轮最优选择。
+                        {
+                          "recommendedCardName": "USS 约克城号",
+                          "reason": "USS 约克城号的竞技场基础分最高，同时数量为2，稳定性更强；并且它与当前卡组的中期节奏和已有单位体系协同性最好，因此是本轮最优选择。"
+                        }
                         """);
 
         // 真跑 Final Decision

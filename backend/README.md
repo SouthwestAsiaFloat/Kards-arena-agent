@@ -11,6 +11,8 @@
 - 用规则排序做主锚点和失败兜底
 - 回写历史记录、已选卡池和牌组状态
 - 可选地用 `Redis + Redisson` 提供会话存储、分析去重缓存和分布式锁
+- 在异步链路下保存 job 状态，支持 OCR 结果监听并发和 LLM 并发保护
+- 暴露 Actuator / Micrometer 指标，方便观察队列、LLM 和异步分析状态
 
 ## 技术栈
 
@@ -147,6 +149,7 @@ Agent 会按约定顺序调用工具：
 - `RedissonSessionLockManager`
 - `RedissonAnalyzeResultCache`
 - `RedissonAnalyzeRequestLockManager`
+- `AnalyzeJobStore` 的 Redis 存储
 
 覆盖以下能力：
 
@@ -154,8 +157,31 @@ Agent 会按约定顺序调用工具：
 - 同一 session 的并发保护
 - 重复截图分析结果缓存
 - 同一分析 key 的并发去重
+- 异步分析 job 状态在后端重启后可继续查询
 
-### 6. 重复截图去重
+### 6. 容灾与并发保护
+
+异步 OCR 链路里，后端会把任务状态标记为：
+
+- `QUEUED`
+- `ANALYZING`
+- `COMPLETED`
+- `FAILED`
+
+默认 `in-memory` 模式下，job 状态只保存在当前 JVM 内存中；启用 `redis` profile 后，job 状态会写入 Redis，TTL 由 `arena.ocr.async.job-ttl` 控制。
+
+后端还有两层并发保护：
+
+- OCR 结果监听器支持 `arena.ocr.async.result-listener-concurrency`，用于提高结果队列消费能力。
+- LLM 调用通过 `arena.analysis.max-concurrent-llm-calls` 限制最大并发，避免外部模型接口被瞬间打满。
+- 上传文件会校验为空、大小和基础 MIME 类型。
+- 异步接口会限制全局 active job 数和单 session active job 数，系统繁忙时返回 `429`。
+
+如果 LLM 并发许可等待超时、模型调用超时或熔断打开，当前分析会走已有的 rule-based fallback，保证用户仍能拿到推荐结果。
+
+Redis 模式下，WebSocket job 更新会通过 Redis Pub/Sub 广播到其它后端实例；如果 WebSocket 推送没命中，前端仍可通过 `GET /api/arena/analyze/jobs/{jobId}` 轮询兜底。
+
+### 7. 重复截图去重
 
 `analyze` 当前会按：
 
@@ -336,9 +362,20 @@ arena:
     async:
       exchange: arena.ocr
       request-queue: arena.ocr.requests
+      retry-queue: arena.ocr.requests.retry
+      dead-queue: arena.ocr.requests.dead
       result-queue: arena.ocr.results
       request-routing-key: ocr.request
+      retry-routing-key: ocr.request.retry
+      dead-routing-key: ocr.request.dead
       result-routing-key: ocr.result
+      retry-delay: PT2S
+      result-listener-concurrency: 2-8
+      job-redis-map-name: arena:ocr:jobs
+      job-ttl: PT2H
+      job-recover-after: PT10M
+      job-recovery-fixed-delay: PT1M
+      job-update-topic-name: arena:ocr:job-updates
 ```
 
 ### Session / Redis 配置
@@ -350,16 +387,53 @@ arena:
     ttl: PT12H
   analysis:
     cache-ttl: PT10M
+    max-concurrent-llm-calls: 4
+    llm-permit-timeout: PT20S
+    llm-timeout: PT60S
+    llm-max-retries: 1
+    llm-circuit-breaker-failure-threshold: 5
+    llm-circuit-breaker-open-duration: PT30S
+    max-upload-size: 20MB
+    max-active-jobs: 100
+    max-active-jobs-per-session: 2
   redis:
     address: redis://127.0.0.1:6379
     database: 0
     lock-watchdog-timeout: PT30S
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
 ```
 
 说明：
 
 - 默认是 `in-memory`
 - 当启用 `redis` profile 时，`arena.session.store-type` 会切成 `redis`
+- Redis 模式会同时增强 session、分析缓存、分布式锁和异步 job 状态的容灾能力
+- `max-concurrent-llm-calls` 建议根据模型服务限流和本机吞吐逐步调整，不建议一开始拉太高
+
+### 指标
+
+启用后端后可以访问：
+
+- `GET /actuator/health`
+- `GET /actuator/metrics`
+- `GET /actuator/prometheus`
+
+当前自定义指标包括：
+
+- `arena.analyze.jobs.submitted`
+- `arena.analyze.jobs.completed`
+- `arena.analyze.jobs.failed`
+- `arena.analyze.jobs.handle_ocr_result`
+- `arena.ocr.results.ignored`
+- `arena.llm.calls`
+- `arena.llm.circuit.open`
+- `arena.llm.circuit.tripped`
+- `arena.analyze.fallbacks`
 
 ## 本地运行
 

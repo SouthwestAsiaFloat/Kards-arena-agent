@@ -35,20 +35,24 @@ public class DraftApplicationService {
     private final SessionLockManager sessionLockManager;
     private final AnalyzeResultCache analyzeResultCache;
     private final AnalyzeRequestLockManager analyzeRequestLockManager;
+    private final AnalysisRequestGuard analysisRequestGuard;
 
     public DraftApplicationService(ToolCallingDraftAnalyzeService toolCallingDraftAnalyzeService,
                                    SessionRepository repository,
                                    SessionLockManager sessionLockManager,
                                    AnalyzeResultCache analyzeResultCache,
-                                   AnalyzeRequestLockManager analyzeRequestLockManager) {
+                                   AnalyzeRequestLockManager analyzeRequestLockManager,
+                                   AnalysisRequestGuard analysisRequestGuard) {
         this.toolCallingDraftAnalyzeService = toolCallingDraftAnalyzeService;
         this.repository = repository;
         this.sessionLockManager = sessionLockManager;
         this.analyzeResultCache = analyzeResultCache;
         this.analyzeRequestLockManager = analyzeRequestLockManager;
+        this.analysisRequestGuard = analysisRequestGuard;
     }
 
     public DraftAnalyzeResponse analyze(MultipartFile file, String sessionId) throws Exception {
+        analysisRequestGuard.validateUpload(file);
         byte[] imageBytes = file.getBytes();
         if (sessionId != null && !sessionId.isBlank()) {
             return sessionLockManager.withSessionLock(sessionId, () -> analyzeLocked(imageBytes, sessionId));

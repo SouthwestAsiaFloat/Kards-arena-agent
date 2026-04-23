@@ -1,21 +1,24 @@
 package com.southwestasiafloat.backend.domain.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.CardEvaluationResult;
 import com.southwestasiafloat.backend.domain.model.OfferedCards;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.List;
 
 
-
-@SpringBootTest
 public class CardEvaluationServiceTest {
 
-    @Autowired
     private CardEvaluationService cardEvaluationService;
+
+    @BeforeEach
+    void setUp() {
+        cardEvaluationService = new CardEvaluationService(new ObjectMapper());
+        cardEvaluationService.init();
+    }
 
     @Test
     void shouldEvaluateThreeExampleCards() {

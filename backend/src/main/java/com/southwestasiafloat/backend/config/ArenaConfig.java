@@ -25,12 +25,15 @@ public class ArenaConfig {
     public OpenAiChatModel openAiChatModel(
             @Value("${llm.api-key}") String apiKey,
             @Value("${llm.model-name:qwen3-max}") String modelName,
-            @Value("${llm.base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl
+            @Value("${llm.base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl,
+            ArenaAnalysisProperties analysisProperties
     ) {
         return OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(modelName)
                 .baseUrl(baseUrl)
+                .timeout(analysisProperties.getLlmTimeout())
+                .maxRetries(Math.max(0, analysisProperties.getLlmMaxRetries()))
                 .build();
     }
 
