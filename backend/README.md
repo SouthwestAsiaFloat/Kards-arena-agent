@@ -22,6 +22,7 @@
 - LangChain4j
 - DashScope 兼容 OpenAI API
 - Redis / Redisson
+- MySQL / Spring JDBC
 
 ## 目录结构
 
@@ -138,10 +139,11 @@ Agent 会按约定顺序调用工具：
 
 ### 5. Redis / Redisson 集成
 
-当前已经支持两种运行模式：
+当前已经支持三种运行模式：
 
 - `in-memory`
 - `redis`
+- `mysql`
 
 当启用 `redis` profile 时，后端会使用：
 
@@ -159,6 +161,31 @@ Agent 会按约定顺序调用工具：
 - 同一分析 key 的并发去重
 - 异步分析 job 状态在后端重启后可继续查询
 
+当启用 `mysql` profile 时，后端会使用：
+
+- `MySqlSessionRepository`
+- `MySqlAnalyzeResultCache`
+- `MySqlAnalyzeJobRepository`
+- `MySqlSessionLockManager`
+- `MySqlAnalyzeRequestLockManager`
+
+覆盖以下能力：
+
+- draft session 持久化
+- 异步分析 job 状态持久化
+- 重复截图分析结果缓存
+- session / analyze 请求跨实例互斥
+
+启动方式：
+
+```powershell
+$env:DASHSCOPE_API_KEY="your_api_key"
+$env:SPRING_PROFILES_ACTIVE="mysql"
+.\mvnw.cmd spring-boot:run
+```
+
+默认连接本地 compose 里的 `arena_agent` 数据库；可以用 `MYSQL_URL`、`MYSQL_USERNAME`、`MYSQL_PASSWORD` 覆盖。
+
 ### 6. 容灾与并发保护
 
 异步 OCR 链路里，后端会把任务状态标记为：
@@ -168,7 +195,7 @@ Agent 会按约定顺序调用工具：
 - `COMPLETED`
 - `FAILED`
 
-默认 `in-memory` 模式下，job 状态只保存在当前 JVM 内存中；启用 `redis` profile 后，job 状态会写入 Redis，TTL 由 `arena.ocr.async.job-ttl` 控制。
+默认 `in-memory` 模式下，job 状态只保存在当前 JVM 内存中；启用 `redis` profile 后，job 状态会写入 Redis；启用 `mysql` profile 后，job 状态会写入 MySQL。TTL 由 `arena.ocr.async.job-ttl` 控制。
 
 后端还有两层并发保护：
 
@@ -412,7 +439,9 @@ management:
 
 - 默认是 `in-memory`
 - 当启用 `redis` profile 时，`arena.session.store-type` 会切成 `redis`
+- 当启用 `mysql` profile 时，`arena.session.store-type` 会切成 `mysql`
 - Redis 模式会同时增强 session、分析缓存、分布式锁和异步 job 状态的容灾能力
+- MySQL 模式会持久化 session、分析缓存和异步 job 状态，适合做历史沉淀和统计分析
 - `max-concurrent-llm-calls` 建议根据模型服务限流和本机吞吐逐步调整，不建议一开始拉太高
 
 ### 指标

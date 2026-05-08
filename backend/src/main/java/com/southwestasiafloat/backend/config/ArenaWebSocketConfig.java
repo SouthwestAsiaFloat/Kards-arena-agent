@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.config;
 
+/**
+ * WebSocket 连接与处理器注册配置。
+ */
+
 import com.southwestasiafloat.backend.infrastructure.websocket.AnalyzeJobWebSocketHandler;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;

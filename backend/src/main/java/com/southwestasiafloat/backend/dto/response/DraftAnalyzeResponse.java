@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.dto.response;
 
+/**
+ * 草稿分析响应 DTO，返回推荐卡牌与决策信息。
+ */
+
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.FinalDecision;
 

@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.mq;
 
+/**
+ * OCR 任务发布组件，负责把截图请求发送到消息队列。
+ */
+
 import com.southwestasiafloat.backend.config.ArenaOcrAsyncProperties;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;

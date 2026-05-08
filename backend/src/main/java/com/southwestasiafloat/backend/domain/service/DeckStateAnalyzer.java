@@ -1,4 +1,8 @@
 package com.southwestasiafloat.backend.domain.service;
+
+/**
+ * 领域服务，负责从已选卡牌推导牌组状态与费用曲线。
+ */
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.DeckState;
 import org.springframework.stereotype.Service;
@@ -9,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 
-// 目前已抓卡组状态分析
+// 已选卡组状态分析
 @Service
 public class DeckStateAnalyzer {
 
@@ -50,7 +54,7 @@ public class DeckStateAnalyzer {
             }
         }
 
-        // 填充 state
+        // 填充牌组状态对象
         state.setCostCurve(costCurve);
         state.setUnitCount(unitCount);
         state.setOrderCount(orderCount);

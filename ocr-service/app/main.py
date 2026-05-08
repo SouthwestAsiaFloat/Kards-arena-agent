@@ -5,7 +5,7 @@ from typing import AsyncIterator
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from core.analyze_service import analyze_image
 from core.ocr_runner import OCRRunner, init_ocr_engine
@@ -26,6 +26,12 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     yield
 
 app = FastAPI(title="ocr-service", version="0.1.0", lifespan=lifespan)
+
+@app.get("/health")
+async def health_api():
+    if getattr(app.state, "ocr_runner", None) is None:
+        raise HTTPException(status_code=503, detail="OCRRunner not initialized")
+    return {"status": "ok"}
 
 @app.post("/ocr")
 async def ocr_api(file: UploadFile = File(...)):

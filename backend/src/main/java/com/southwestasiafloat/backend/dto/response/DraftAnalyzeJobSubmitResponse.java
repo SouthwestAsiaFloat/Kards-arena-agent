@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.dto.response;
 
+/**
+ * 异步分析任务提交响应 DTO。
+ */
+
 public class DraftAnalyzeJobSubmitResponse {
 
     private String jobId;

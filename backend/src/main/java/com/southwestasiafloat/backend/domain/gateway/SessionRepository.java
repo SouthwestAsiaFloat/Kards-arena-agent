@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.gateway;
 
+/**
+ * 会话仓储接口。
+ */
+
 import com.southwestasiafloat.backend.domain.model.DraftSession;
 
 import java.util.Optional;

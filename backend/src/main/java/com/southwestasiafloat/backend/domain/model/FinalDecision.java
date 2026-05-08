@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.model;
 
+/**
+ * 最终推荐结果，保存推荐卡、解释和来源。
+ */
+
 import lombok.Data;
 
 @Data
@@ -7,7 +11,7 @@ public class FinalDecision {
 
     private CardEvaluationResult recommendedCard;
     private String llmReason;
-    private String decisionSource; // "rule" or "llm"
+    private String decisionSource; // "rule" 或 "llm"
     private Double finalScore;
 
     public FinalDecision() {

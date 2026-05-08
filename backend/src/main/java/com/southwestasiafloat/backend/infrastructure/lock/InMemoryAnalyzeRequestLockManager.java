@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.lock;
 
+/**
+ * 内存分析请求锁实现。
+ */
+
 import com.southwestasiafloat.backend.domain.gateway.AnalyzeRequestLockManager;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

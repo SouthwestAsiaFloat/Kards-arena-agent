@@ -29,6 +29,7 @@
     <properties>
         <java.version>17</java.version>
     </properties>
+    <!-- 后端依赖集中在 Web、消息队列、数据库、缓存和监控能力。 -->
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -64,11 +65,19 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
         <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.langchain4j</groupId>
@@ -80,8 +89,14 @@
             <artifactId>redisson</artifactId>
             <version>4.2.0</version>
         </dependency>
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 
+    <!-- 编译与打包插件配置。 -->
     <build>
         <plugins>
             <plugin>

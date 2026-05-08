@@ -22,6 +22,7 @@ my-arena-agent/
 - 在前端直接确认“这轮最终选了哪张牌”
 - 支持 `RabbitMQ + OCR worker + 前端 WebSocket/轮询` 的异步识别链路
 - 支持可选的 `Redis + Redisson` 会话存储与分布式锁
+- 支持可选的 `MySQL` 会话、异步任务和分析缓存持久化
 - 对重复截图分析做去重缓存，避免重复 OCR / LLM 调用
 - 支持 OCR worker 失败重试、后端结果监听并发和 LLM 并发保护，适合逐步提升吞吐
 
@@ -56,15 +57,57 @@ flowchart LR
 - DashScope 兼容 OpenAI API 的密钥
 - RabbitMQ 3.12+
 - 可选：Redis 7+
+- 可选：MySQL 8+
 
-### 2. 启动 RabbitMQ
+### 2. Docker Compose 一键运行（推荐）
+
+根目录已经提供完整 `docker-compose.yml`，会一起启动：
+
+- `frontend`
+- `backend`
+- `ocr-service`
+- `ocr-worker`
+- `RabbitMQ`
+- `Redis`
+- `MySQL`
+- `Prometheus`
+
+先准备环境变量：
+
+```bash
+cp .env.example .env
+```
+
+然后把 `.env` 里的 `DASHSCOPE_API_KEY` 改成你的 DashScope API Key，再启动：
+
+```bash
+docker compose up --build
+```
+
+启动后访问：
+
+- 前端：`http://127.0.0.1:5173`
+- 后端健康检查：`http://127.0.0.1:8080/actuator/health`
+- OCR 服务：`http://127.0.0.1:18000/docs`
+- RabbitMQ 管理台：`http://127.0.0.1:15672`，默认账号密码都是 `guest`
+- Prometheus：`http://127.0.0.1:9090`
+
+默认使用 `SPRING_PROFILES_ACTIVE=redis`。如果你想用 MySQL 持久化，可以把 `.env` 里的 profile 改成：
+
+```text
+SPRING_PROFILES_ACTIVE=mysql
+```
+
+Apple Silicon 上 PaddleOCR / PaddlePaddle 的 CPU wheel 默认按 `linux/amd64` 构建，首次构建会慢一些；如果你确认自己的 Paddle 镜像支持 arm64，可以在 `.env` 里调整 `OCR_PLATFORM`。
+
+### 3. 只启动基础设施（可选）
 
 本项目的前端默认走异步分析链路，后端会把 OCR 任务投递到 RabbitMQ，`ocr-service` worker 消费后再把结果回传给后端。
 
-推荐直接启动 RabbitMQ、Redis 和 Prometheus：
+推荐直接启动 RabbitMQ、Redis、MySQL 和 Prometheus：
 
 ```powershell
-docker compose up -d rabbitmq redis prometheus
+docker compose up -d rabbitmq redis mysql prometheus
 ```
 
 也可以只启动 RabbitMQ：
@@ -77,9 +120,9 @@ docker run --rm --name arena-rabbitmq `
 
 管理台地址：`http://127.0.0.1:15672`，默认账号密码都是 `guest`。
 
-Prometheus 地址：`http://127.0.0.1:9090`。默认会抓取本机后端的 `http://host.docker.internal:8080/actuator/prometheus`。
+Prometheus 地址：`http://127.0.0.1:9090`。全容器模式下默认会抓取 `backend:8080/actuator/prometheus`。
 
-### 3. 启动 OCR 服务
+### 4. 本地启动 OCR 服务
 
 在 `ocr-service` 目录：
 
@@ -113,7 +156,7 @@ python -m app.worker
 
 默认每个 worker 一次只处理 1 个 OCR 任务，这样更稳，也能避免 PaddleOCR 在单进程内争抢资源。
 
-### 4. 启动后端
+### 5. 本地启动后端
 
 在 `backend` 目录：
 
@@ -130,7 +173,17 @@ $env:SPRING_PROFILES_ACTIVE="redis"
 .\mvnw.cmd spring-boot:run
 ```
 
-### 5. 启动前端
+如果你要启用 MySQL 持久化：
+
+```powershell
+$env:DASHSCOPE_API_KEY="your_api_key"
+$env:SPRING_PROFILES_ACTIVE="mysql"
+.\mvnw.cmd spring-boot:run
+```
+
+默认 MySQL 连接为 `jdbc:mysql://127.0.0.1:3306/arena_agent`，账号密码都是 `arena`。可以通过 `MYSQL_URL`、`MYSQL_USERNAME` 和 `MYSQL_PASSWORD` 覆盖。
+
+### 6. 本地启动前端
 
 在 `frontend` 目录：
 
@@ -156,6 +209,8 @@ $env:SPRING_PROFILES_ACTIVE="redis"
 ```
 
 启用 Redis 后，后端会把 session、分析去重缓存、分布式锁和异步 job 状态放到 Redis / Redisson 上，后端重启后仍能查询已保存的 job 状态。
+
+启用 MySQL 后，后端会把 session、异步 job 状态和分析结果缓存保存到 MySQL，并用 MySQL named lock 做 session / analyze 请求互斥。MySQL 模式更适合沉淀 draft 历史和后续做统计分析；Redis 模式更适合作为高吞吐的热状态存储。
 
 ### 并发扩容顺序
 

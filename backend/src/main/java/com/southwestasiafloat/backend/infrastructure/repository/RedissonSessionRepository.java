@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.repository;
 
+/**
+ * Redis 会话仓储实现。
+ */
+
 import com.southwestasiafloat.backend.config.ArenaSessionProperties;
 import com.southwestasiafloat.backend.domain.gateway.SessionRepository;
 import com.southwestasiafloat.backend.domain.model.DraftSession;

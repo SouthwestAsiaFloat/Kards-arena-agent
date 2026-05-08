@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.model;
 
+/**
+ * 卡牌领域模型。
+ */
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -21,7 +25,7 @@ public class Card {
     private Integer defense;
     private List<String> keywords;
     private String description;
-    private String type; // unit/order
+    private String type; // 单位牌 / 指令牌
     private Integer count; // 这一抓的数量
 }
 

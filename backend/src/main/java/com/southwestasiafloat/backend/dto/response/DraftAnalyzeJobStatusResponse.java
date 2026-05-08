@@ -1,6 +1,10 @@
 package com.southwestasiafloat.backend.dto.response;
 
-import com.southwestasiafloat.backend.application.service.AsyncDraftAnalyzeJob;
+/**
+ * 异步分析任务状态响应 DTO。
+ */
+
+import com.southwestasiafloat.backend.application.analysis.model.AsyncDraftAnalyzeJob;
 
 import java.time.Instant;
 

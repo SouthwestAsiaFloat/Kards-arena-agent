@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.util;
 
+/**
+ * 文本处理工具类。
+ */
+
 public final class TextUtils {
 
     private TextUtils() {

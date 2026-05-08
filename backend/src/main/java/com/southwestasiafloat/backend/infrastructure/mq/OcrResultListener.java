@@ -1,8 +1,12 @@
 package com.southwestasiafloat.backend.infrastructure.mq;
 
+/**
+ * OCR 结果监听组件，负责消费 OCR 完成消息。
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.southwestasiafloat.backend.application.service.AsyncDraftApplicationService;
+import com.southwestasiafloat.backend.application.analysis.AsyncDraftApplicationService;
 import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.Message;

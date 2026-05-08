@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.dto.response;
 
+/**
+ * 开始草稿对局的响应 DTO。
+ */
+
 public class StartDraftResponse {
 
     private String sessionId;

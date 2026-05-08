@@ -26,8 +26,22 @@ def _create_ocr_engine() -> Any:
         raise RuntimeError("PaddleOCR is not installed. Please install paddleocr first.") from exc
 
     attempts = (
-        {"lang": "ch", "device": "cpu"},
-        {"lang": "ch", "use_gpu": False},
+        {
+            "lang": "ch",
+            "device": "cpu",
+            "enable_mkldnn": False,
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+        },
+        {
+            "lang": "ch",
+            "use_gpu": False,
+            "enable_mkldnn": False,
+            "ir_optim": False,
+            "cpu_threads": 1,
+            "use_angle_cls": False,
+        },
         {"lang": "ch"},
     )
 
@@ -35,7 +49,7 @@ def _create_ocr_engine() -> Any:
     for kwargs in attempts:
         try:
             return PaddleOCR(**kwargs)
-        except TypeError as exc:
+        except (TypeError, ValueError) as exc:
             if _is_unknown_arg_error(exc):
                 last_exc = exc
                 continue

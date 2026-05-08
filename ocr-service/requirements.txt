@@ -2,7 +2,10 @@ fastapi
 uvicorn[standard]
 python-multipart
 pytest
-numpy
-opencv-python
+numpy<2
+opencv-python-headless<4.10
 requests
 pika
+rapidfuzz
+paddleocr==3.5.0
+paddlepaddle==3.3.1

@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.config;
 
+/**
+ * RabbitMQ 交换机、队列和路由配置。
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;

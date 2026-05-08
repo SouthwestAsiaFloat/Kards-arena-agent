@@ -1,0 +1,17 @@
+# MySQL 数据源配置
+spring:
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/arena_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USERNAME:arena}
+    password: ${MYSQL_PASSWORD:arena}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+# MySQL 模式下的会话存储与锁参数
+arena:
+  session:
+    store-type: mysql
+  mysql:
+    enabled: true
+    maximum-pool-size: 10
+    minimum-idle: 1
+    lock-wait-timeout: PT10S

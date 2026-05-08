@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.service;
 
+/**
+ * 领域服务，负责从全量卡库和国家评分表中计算基础分。
+ */
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.domain.model.Card;
@@ -18,10 +22,10 @@ public class CardEvaluationService {
 
     private final ObjectMapper objectMapper;
 
-    // 全量卡库：name -> Card
+    // 全量卡库：卡名 -> 卡牌对象
     private Map<String, Card> fullCardMap = new HashMap<>();
 
-    // 各国评分表：nation -> (cardName -> score)
+    // 各国评分表：国家 ->（卡名 -> 分数）
     private Map<String, Map<String, Double>> nationScoreMap = new HashMap<>();
 
     // OCR国家名称到评分表国家名称的映射

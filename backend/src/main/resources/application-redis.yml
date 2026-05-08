@@ -1,3 +1,4 @@
+# Redis 模式下的会话存储配置
 arena:
   session:
     store-type: redis

@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.gateway;
 
+/**
+ * 会话锁接口。
+ */
+
 import java.util.function.Supplier;
 
 public interface SessionLockManager {

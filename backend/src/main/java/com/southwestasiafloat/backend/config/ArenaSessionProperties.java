@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.config;
 
+/**
+ * 草稿会话存储与锁前缀相关配置属性。
+ */
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;

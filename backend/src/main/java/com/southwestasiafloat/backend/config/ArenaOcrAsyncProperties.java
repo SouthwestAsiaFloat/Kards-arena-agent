@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.config;
 
+/**
+ * 异步 OCR 任务队列与恢复参数配置属性。
+ */
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;

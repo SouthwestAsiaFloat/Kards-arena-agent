@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.LLMTest;
 
+/**
+ * 测试类，用于验证后端各模块的行为。
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.domain.gateway.LlmGateway;
 import com.southwestasiafloat.backend.domain.model.Card;

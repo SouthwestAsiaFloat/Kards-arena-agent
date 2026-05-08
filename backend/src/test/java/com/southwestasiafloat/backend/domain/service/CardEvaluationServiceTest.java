@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.service;
 
+/**
+ * 领域服务，负责封装草稿分析中的核心业务规则。
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.domain.model.Card;
 import com.southwestasiafloat.backend.domain.model.CardEvaluationResult;

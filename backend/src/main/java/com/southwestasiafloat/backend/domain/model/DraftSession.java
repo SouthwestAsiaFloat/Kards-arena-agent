@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.model;
 
+/**
+ * 草稿会话领域模型，保存当前对局状态。
+ */
+
 import lombok.Data;
 import lombok.NoArgsConstructor;
 

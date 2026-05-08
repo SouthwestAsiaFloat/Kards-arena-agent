@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.lock;
 
+/**
+ * 内存会话锁实现。
+ */
+
 import com.southwestasiafloat.backend.domain.gateway.SessionLockManager;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

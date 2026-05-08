@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.dto.request;
 
+/**
+ * 草稿选牌请求 DTO。
+ */
+
 import com.southwestasiafloat.backend.domain.model.Card;
 
 public class DraftPickRequest {

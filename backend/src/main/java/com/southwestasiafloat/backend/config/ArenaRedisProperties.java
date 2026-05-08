@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.config;
 
+/**
+ * Redis 连接相关配置属性。
+ */
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;

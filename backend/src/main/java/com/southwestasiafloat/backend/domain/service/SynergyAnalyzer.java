@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.service;
 
+/**
+ * 领域服务，负责分析卡牌之间的协同关系。
+ */
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.domain.gateway.LlmGateway;

@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.model;
 
+/**
+ * 牌组状态领域模型。
+ */
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -12,7 +16,7 @@ import java.util.Map;
 @AllArgsConstructor
 public class DeckState {
 
-    // 费用曲线（key: cost, value: count）
+    // 费用曲线（费用 -> 数量）
     Map<Integer, Integer> costCurve;
 
     int unitCount;
@@ -25,7 +29,7 @@ public class DeckState {
     int midCount;     // 4-6费
     int lateCount;    // 7+
 
-    // 标签（给LLM用）
+    // 标签（供 LLM 使用）
     List<String> tags;
 }
 

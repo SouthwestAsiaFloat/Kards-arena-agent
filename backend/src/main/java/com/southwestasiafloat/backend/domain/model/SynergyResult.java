@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.model;
 
+/**
+ * 卡牌协同分析结果模型。
+ */
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

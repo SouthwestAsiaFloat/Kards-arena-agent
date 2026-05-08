@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.config;
 
+/**
+ * LLM、OCR 和基础客户端的装配配置。
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.redisson.Redisson;
@@ -15,9 +19,11 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @EnableConfigurationProperties({
         ArenaRedisProperties.class,
+        ArenaMysqlProperties.class,
         ArenaSessionProperties.class,
         ArenaAnalysisProperties.class,
-        ArenaOcrAsyncProperties.class
+        ArenaOcrAsyncProperties.class,
+        ArenaRateLimitProperties.class
 })
 public class ArenaConfig {
 

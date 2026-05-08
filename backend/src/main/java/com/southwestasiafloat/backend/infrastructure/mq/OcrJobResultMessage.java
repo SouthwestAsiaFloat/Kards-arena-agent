@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.mq;
 
+/**
+ * OCR 任务结果消息体，描述 OCR 处理完成后的输出。
+ */
+
 public class OcrJobResultMessage {
 
     private String jobId;

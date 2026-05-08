@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.domain.service;
 
+/**
+ * 领域服务，负责基于评分、协同和 LLM 输出生成最终决策。
+ */
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.southwestasiafloat.backend.domain.model.CardEvaluationResult;

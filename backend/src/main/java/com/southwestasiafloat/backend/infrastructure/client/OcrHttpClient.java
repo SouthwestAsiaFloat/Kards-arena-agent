@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.client;
 
+/**
+ * OCR HTTP 客户端，实现对外部 OCR 服务的调用。
+ */
+
 import com.southwestasiafloat.backend.domain.gateway.OcrGateway;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;

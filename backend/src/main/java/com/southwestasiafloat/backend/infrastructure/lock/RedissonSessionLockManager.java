@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.lock;
 
+/**
+ * Redis 会话锁实现。
+ */
+
 import com.southwestasiafloat.backend.config.ArenaSessionProperties;
 import com.southwestasiafloat.backend.domain.gateway.SessionLockManager;
 import org.redisson.api.RLock;
@@ -29,7 +33,7 @@ public class RedissonSessionLockManager implements SessionLockManager {
         }
 
         RLock lock = redissonClient.getLock(buildLockKey(sessionId));
-        // Acquire without leaseTime so Redisson watchdog can renew the lock automatically.
+        // 这里不设置 leaseTime，让 Redisson watchdog 自动续约锁。
         lock.lock();
         try {
             return action.get();

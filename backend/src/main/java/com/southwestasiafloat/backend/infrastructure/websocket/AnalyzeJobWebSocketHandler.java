@@ -1,9 +1,13 @@
 package com.southwestasiafloat.backend.infrastructure.websocket;
 
+/**
+ * 分析任务 WebSocket 处理器。
+ */
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.southwestasiafloat.backend.application.service.AnalyzeJobStore;
-import com.southwestasiafloat.backend.application.service.AnalyzeJobUpdateNotifier;
-import com.southwestasiafloat.backend.application.service.AsyncDraftAnalyzeJob;
+import com.southwestasiafloat.backend.application.analysis.support.AnalyzeJobStore;
+import com.southwestasiafloat.backend.application.analysis.support.AnalyzeJobUpdateNotifier;
+import com.southwestasiafloat.backend.application.analysis.model.AsyncDraftAnalyzeJob;
 import com.southwestasiafloat.backend.config.ArenaOcrAsyncProperties;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeJobStatusResponse;
 import jakarta.annotation.PostConstruct;

@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.lock;
 
+/**
+ * Redis 分析请求锁实现。
+ */
+
 import com.southwestasiafloat.backend.config.ArenaAnalysisProperties;
 import com.southwestasiafloat.backend.domain.gateway.AnalyzeRequestLockManager;
 import org.redisson.api.RLock;

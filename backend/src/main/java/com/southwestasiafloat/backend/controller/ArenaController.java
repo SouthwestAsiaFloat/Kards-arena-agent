@@ -1,14 +1,19 @@
 package com.southwestasiafloat.backend.controller;
 
-import com.southwestasiafloat.backend.application.service.DraftApplicationService;
-import com.southwestasiafloat.backend.application.service.DraftSessionApplicationService;
-import com.southwestasiafloat.backend.application.service.AsyncDraftApplicationService;
+/**
+ * 草稿对局 HTTP 控制器，负责接收前端请求并调用应用层服务。
+ */
+
+import com.southwestasiafloat.backend.application.analysis.AsyncDraftApplicationService;
+import com.southwestasiafloat.backend.application.analysis.DraftApplicationService;
+import com.southwestasiafloat.backend.application.session.DraftSessionApplicationService;
 import com.southwestasiafloat.backend.domain.model.DraftSession;
 import com.southwestasiafloat.backend.dto.request.DraftPickRequest;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeJobStatusResponse;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeJobSubmitResponse;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;
 import com.southwestasiafloat.backend.dto.response.StartDraftResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -37,8 +42,9 @@ public class ArenaController {
 
     @PostMapping(value = "/analyze/async", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public DraftAnalyzeJobSubmitResponse analyzeAsync(@RequestPart("file") MultipartFile file,
-                                                      @RequestPart(value = "sessionId", required = false) String sessionId) throws Exception {
-        return asyncDraftApplicationService.submitAnalyzeJob(file, sessionId);
+                                                      @RequestPart(value = "sessionId", required = false) String sessionId,
+                                                      HttpServletRequest request) throws Exception {
+        return asyncDraftApplicationService.submitAnalyzeJob(file, sessionId, resolveClientIp(request));
     }
 
     @GetMapping("/analyze/jobs/{jobId}")
@@ -81,6 +87,23 @@ public class ArenaController {
     public String endDraft(@PathVariable String sessionId) {
         draftSessionApplicationService.removeSession(sessionId);
         return "Draft session ended: " + sessionId;
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            int commaIndex = forwardedFor.indexOf(',');
+            return commaIndex >= 0
+                    ? forwardedFor.substring(0, commaIndex).trim()
+                    : forwardedFor.trim();
+        }
+
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+
+        return request.getRemoteAddr();
     }
 
 }

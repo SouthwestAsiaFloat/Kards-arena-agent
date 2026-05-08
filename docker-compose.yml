@@ -1,4 +1,92 @@
 services:
+  backend:
+    build:
+      context: ./backend
+    container_name: arena-backend
+    environment:
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-redis}
+      OCR_BASE_URL: http://ocr-service:18000
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+      ARENA_REDIS_ADDRESS: redis://redis:6379
+      ARENA_MYSQL_ENABLED: "true"
+      MYSQL_URL: jdbc:mysql://mysql:3306/arena_agent?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      MYSQL_USERNAME: arena
+      MYSQL_PASSWORD: arena
+      ARENA_RATE_LIMIT_ANALYZE_ENABLED: ${ARENA_RATE_LIMIT_ANALYZE_ENABLED:-true}
+      ARENA_RATE_LIMIT_ANALYZE_PER_SESSION_CAPACITY: ${ARENA_RATE_LIMIT_ANALYZE_PER_SESSION_CAPACITY:-10}
+      ARENA_RATE_LIMIT_ANALYZE_PER_SESSION_REFILL_TOKENS: ${ARENA_RATE_LIMIT_ANALYZE_PER_SESSION_REFILL_TOKENS:-10}
+      ARENA_RATE_LIMIT_ANALYZE_PER_SESSION_REFILL_PERIOD: ${ARENA_RATE_LIMIT_ANALYZE_PER_SESSION_REFILL_PERIOD:-PT1M}
+      ARENA_RATE_LIMIT_ANALYZE_PER_IP_CAPACITY: ${ARENA_RATE_LIMIT_ANALYZE_PER_IP_CAPACITY:-30}
+      ARENA_RATE_LIMIT_ANALYZE_PER_IP_REFILL_TOKENS: ${ARENA_RATE_LIMIT_ANALYZE_PER_IP_REFILL_TOKENS:-30}
+      ARENA_RATE_LIMIT_ANALYZE_PER_IP_REFILL_PERIOD: ${ARENA_RATE_LIMIT_ANALYZE_PER_IP_REFILL_PERIOD:-PT1M}
+    ports:
+      - "8080:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      ocr-service:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: arena-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  ocr-service:
+    image: arena-ocr-service:local
+    build:
+      context: ./ocr-service
+    platform: ${OCR_PLATFORM:-linux/amd64}
+    container_name: arena-ocr-service
+    environment:
+      FLAGS_use_mkldnn: "0"
+      FLAGS_enable_pir_api: "0"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+    volumes:
+      - paddlex-models:/root/.paddlex
+      - huggingface-cache:/root/.cache/huggingface
+    ports:
+      - "18000:18000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:18000/health', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+
+  ocr-worker:
+    image: arena-ocr-service:local
+    platform: ${OCR_PLATFORM:-linux/amd64}
+    container_name: arena-ocr-worker
+    command: ["python", "-m", "app.worker"]
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+      OCR_WORKER_MAX_RETRIES: ${OCR_WORKER_MAX_RETRIES:-2}
+      OCR_WORKER_RETRY_DELAY_SECONDS: ${OCR_WORKER_RETRY_DELAY_SECONDS:-2}
+      FLAGS_use_mkldnn: "0"
+      FLAGS_enable_pir_api: "0"
+      PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+    volumes:
+      - paddlex-models:/root/.paddlex
+      - huggingface-cache:/root/.cache/huggingface
+    depends_on:
+      ocr-service:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: arena-rabbitmq
@@ -22,6 +110,24 @@ services:
       timeout: 5s
       retries: 6
 
+  mysql:
+    image: mysql:8.4
+    container_name: arena-mysql
+    environment:
+      MYSQL_DATABASE: arena_agent
+      MYSQL_USER: arena
+      MYSQL_PASSWORD: arena
+      MYSQL_ROOT_PASSWORD: arena_root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uarena -parena --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: arena-prometheus
@@ -35,3 +141,29 @@ services:
     depends_on:
       - rabbitmq
       - redis
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: arena-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      MYSQL_USERNAME: arena
+      MYSQL_PASSWORD: arena
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - mysql
+
+volumes:
+  mysql-data:
+  grafana-data:
+  paddlex-models:
+    name: arena-paddlex-models
+  huggingface-cache:
+    name: arena-huggingface-cache

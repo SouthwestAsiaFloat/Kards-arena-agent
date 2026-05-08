@@ -1,12 +1,15 @@
+# LLM 推理相关配置
 llm:
   api-key: ${DASHSCOPE_API_KEY}
   model-name: qwen3-max
   base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
 
+# OCR 服务相关配置
 ocr:
   base-url: http://127.0.0.1:18000
   path: /ocr
 
+# 草稿对局核心配置
 arena:
   ocr:
     async:
@@ -44,6 +47,19 @@ arena:
     max-upload-size: 20MB
     max-active-jobs: 100
     max-active-jobs-per-session: 2
+  rate-limit:
+    analyze:
+      enabled: true
+      key-prefix: arena:rate-limit:analyze
+      bucket-ttl: PT10M
+      per-session-enabled: true
+      per-session-capacity: 10
+      per-session-refill-tokens: 10
+      per-session-refill-period: PT1M
+      per-ip-enabled: true
+      per-ip-capacity: 30
+      per-ip-refill-tokens: 30
+      per-ip-refill-period: PT1M
   redis:
     address: redis://127.0.0.1:6379
     database: 0
@@ -51,7 +67,13 @@ arena:
     connect-timeout: PT10S
     timeout: PT3S
     lock-watchdog-timeout: PT30S
+  mysql:
+    enabled: ${ARENA_MYSQL_ENABLED:false}
+    maximum-pool-size: 10
+    minimum-idle: 1
+    lock-wait-timeout: PT10S
 
+# Spring Boot 运行监控与健康检查配置
 management:
   endpoints:
     web:
@@ -62,6 +84,7 @@ management:
       probes:
         enabled: true
 
+# Spring 运行时基础配置
 spring:
   rabbitmq:
     host: 127.0.0.1

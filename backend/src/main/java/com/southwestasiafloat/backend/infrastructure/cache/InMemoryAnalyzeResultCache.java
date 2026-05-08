@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.cache;
 
+/**
+ * 内存分析结果缓存实现。
+ */
+
 import com.southwestasiafloat.backend.config.ArenaAnalysisProperties;
 import com.southwestasiafloat.backend.domain.gateway.AnalyzeResultCache;
 import com.southwestasiafloat.backend.dto.response.DraftAnalyzeResponse;

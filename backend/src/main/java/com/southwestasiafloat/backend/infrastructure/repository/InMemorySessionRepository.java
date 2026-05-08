@@ -1,5 +1,9 @@
 package com.southwestasiafloat.backend.infrastructure.repository;
 
+/**
+ * 内存会话仓储实现。
+ */
+
 import com.southwestasiafloat.backend.domain.gateway.SessionRepository;
 import com.southwestasiafloat.backend.domain.model.DraftSession;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
